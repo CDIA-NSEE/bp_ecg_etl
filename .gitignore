@@ -174,3 +174,5 @@ cython_debug/
 volume/
 localstack/
 .aws-sam
+.test_data
+cover

@@ -17,6 +17,8 @@ jmespath==1.0.1
 multidict==6.6.3
 pillow==11.3.0
 polars==1.31.0
+pydantic==2.10.5
+pydantic-settings==2.8.2
 propcache==0.3.2
 pymupdf==1.26.3
 python-dateutil==2.9.0.post0

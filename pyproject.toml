@@ -14,10 +14,33 @@ dependencies = [
     "structlog>=23.2.0",
     "aws-lambda-typing>=2.20.0",
     "wheel>=0.45.1",
+    "ulid-py>=1.1.0",
+    "numpy>=1.24.0",
+    "opencv-python>=4.8.0",
+    "pydantic>=2.11.7",
+    "pydantic-settings>=2.10.1",
+    "rapidocr-onnxruntime>=1.4.4",
 ]
 
-[project.scripts]
-# SAM CLI scripts for local testing
+[project.optional-dependencies]
+dev = [
+    "taskipy>=1.12.2",
+    "pytest>=8.3.2",
+    "pytest-cov>=5.0.0",
+    "mypy>=1.10.1",
+    "ruff>=0.5.5",
+    "types-aiobotocore-s3>=2.24.0",
+    "mypy-boto3-lambda>=1.40.0"
+]
+
+[tool.taskipy.tasks]
+run = "python -c 'from bp_ecg_etl.main import lambda_handler; print(lambda_handler({}, None))'"
+test = "pytest tests/"
+coverage = "pytest --cov=bp_ecg_etl tests/"
+lint = "ruff check bp_ecg_etl/ tests/"
+format = "ruff format bp_ecg_etl/ tests/"
+check = "mypy bp_ecg_etl/"
+pre-commit = "taskipy format && taskipy lint && taskipy check"
 sam-build = "sam build --template deployment/template.yaml"
 sam-invoke = "sam local invoke BpEcgEtlFunction --event deployment/events/test-event.json --template deployment/template.yaml"
 sam-deploy = "sam deploy --guided --template deployment/template.yaml"
