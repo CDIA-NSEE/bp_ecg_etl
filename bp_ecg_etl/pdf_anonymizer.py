@@ -50,6 +50,81 @@ def render_page_to_image(page: fitz.Page, dpi: int) -> Image.Image:
     return Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
 
+def clear_pdf_metadata(doc: fitz.Document) -> None:
+    """Clear all metadata from PDF document for privacy."""
+    logger.info("Clearing PDF metadata for privacy")
+    
+    # Get current metadata for logging
+    current_metadata = doc.metadata
+    if current_metadata:
+        logger.debug("Current metadata", metadata_keys=list(current_metadata.keys()))
+    
+    # Clear all standard metadata fields using PyMuPDF's method
+    metadata_to_clear = {
+        'title': '',
+        'author': '',
+        'subject': '',
+        'keywords': '',
+        'creator': '',
+        'producer': '',
+        'creationDate': '',
+        'modDate': '',
+        'trapped': ''
+    }
+    
+    # Use PyMuPDF's metadata setting method
+    try:
+        # Set metadata using the document's metadata property
+        if doc.metadata is not None:
+            for key, value in metadata_to_clear.items():
+                doc.metadata[key] = value
+    except Exception as e:
+        logger.warning("Could not clear standard metadata", error=str(e))
+    
+    # Clear XMP metadata (XML-based metadata)
+    try:
+        # Get XMP metadata
+        xmp_metadata = doc.get_xml_metadata()
+        if xmp_metadata:
+            logger.debug("Found XMP metadata, clearing it")
+            # Set empty XMP metadata
+            doc.set_xml_metadata("")
+            logger.info("XMP metadata cleared successfully")
+        else:
+            logger.debug("No XMP metadata found")
+    except Exception as e:
+        logger.warning("Could not clear XMP metadata", error=str(e))
+    
+    # Also try to remove any custom metadata/properties
+    try:
+        # Clear document info dictionary if accessible
+        info_dict = doc.pdf_catalog()
+        if info_dict and 'Info' in info_dict:
+            # Remove Info reference
+            del info_dict['Info']
+    except Exception as e:
+        logger.warning("Could not clear extended metadata", error=str(e))
+    
+    # Additional cleanup: try to remove metadata streams
+    try:
+        # Iterate through all objects and remove metadata streams
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            # Remove page-level metadata if any
+            try:
+                page_dict = page.get_contents()
+                if page_dict and isinstance(page_dict, list):
+                    for content in page_dict:
+                        if hasattr(content, 'metadata'):
+                            content.metadata = None
+            except Exception:
+                pass  # Page-level metadata removal is optional
+    except Exception as e:
+        logger.warning("Could not clear page-level metadata", error=str(e))
+    
+    logger.info("PDF metadata clearing completed - standard, XMP, and extended metadata processed")
+
+
 def words_by_line(page) -> List[List[Tuple[float, float, float, float, str]]]:
     """Extract and group words by text lines."""
     words = page.get_text("words")  # [x0,y0,x1,y1,text,...]
@@ -202,6 +277,9 @@ def anonymize_single_page_pdf(doc: fitz.Document) -> bytes:
     # Apply all redactions (preserve vector format)
     page1.apply_redactions()
 
+    # Clear PDF metadata for privacy
+    clear_pdf_metadata(doc)
+
     # Save and return the modified PDF
     output_buffer = io.BytesIO()
     doc.save(output_buffer)
@@ -258,6 +336,9 @@ def anonymize_multi_page_pdf(doc: fitz.Document) -> bytes:
     page2_rect = fitz.Rect(0, 0, img.width, img.height)
     new_page = output_doc.new_page(width=page2_rect.width, height=page2_rect.height)
     new_page.insert_image(page2_rect, stream=img_buffer.getvalue())
+
+    # Clear PDF metadata for privacy
+    clear_pdf_metadata(output_doc)
 
     # Save final PDF
     output_buffer = io.BytesIO()
