@@ -9,27 +9,29 @@ AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 
 # Processing Configuration
 DPI_PAGE2_RENDER = int(os.getenv("DPI_PAGE2_RENDER", "220"))
-IMAGE_REDACT_MODE = 2  # PyMuPDF constant
+IMAGE_REDACT_MODE = int(os.getenv("IMAGE_REDACT_MODE", "2"))  # 1 = PDF_REDACT_IMAGE_NONE
 
 # Anonymization Rules
-LINE_TOLERANCE = float(os.getenv("LINE_TOLERANCE", "3.0"))
-PREVLINE_TOLERANCE = float(os.getenv("PREVLINE_TOLERANCE", "20.0"))
-PADDING = float(os.getenv("PADDING", "1.5"))
+LINE_TOLERANCE = float(os.getenv("LINE_TOLERANCE", "1.0"))
+PREVLINE_TOLERANCE = float(os.getenv("PREVLINE_TOLERANCE", "10.0"))
+PADDING = float(os.getenv("PADDING", "1.0"))
 
 # Text Labels
+# Labels que devem ter seus valores REMOVIDOS (anonimizados)
 LABELS_SAME_LINE = [
     "Nome:", "CPF:", "RG:",
     "Reg. Clínico:", "Registro Clínico:",
     "Convênio:", "Convenio:",
     "Responsável:", "Responsavel:",
     "Solicitante:",
-    "Médico Responsável:", "Medico Responsavel:",
-    "Data de nascimento:", "Sexo:", "Idade:",
-    "Data do exame:", "Hora do exame:", "CRM:", "Médico:"
+    "Médico Responsável:", "Medico Responsavel:", "Idade:",
+    "CRM:", "Médico:"
 ]
 
+# Labels que devem ter seus valores PRESERVADOS (não anonimizados)
 KEEP_LABELS = [
-    "Data de Nascimento:", "Sexo:",
+    "Sexo:", "Data:", "Hora:",  # Labels reais do PDF
+    "Data de Nascimento:", 
     "Frequência cardíaca:", "Intervalo PR:", "Duração QRS:",
     "Intervalo QT/QTc:", "Eixo P-QRS-T:", "Interpretação:"
 ]

@@ -8,7 +8,7 @@ services:
       - "4566:4566"      # Edge port
       - "4571:4571"      # Lambda execution port
     environment:
-      - SERVICES=s3,lambda
+      - SERVICES=s3,lambda,cloudwatch,logs
       - DEBUG=1
       - LAMBDA_EXECUTOR=docker-reuse
       - DOCKER_HOST=unix:///var/run/docker.sock

@@ -6,15 +6,13 @@ Resources:
   BpEcgEtlFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: ./bp_ecg_etl/
+      CodeUri: bp_ecg_etl/
       Handler: main.lambda_handler
       Runtime: python3.12
       Timeout: 900
       MemorySize: 1024
       Environment:
         Variables:
-          SOURCE_BUCKET: "test-source-bucket"
-          DEST_BUCKET: "test-dest-bucket"
-          PDF_PREFIX: "pdfs/"
-          BATCH_SIZE: "10"
-          CONCURRENCY: "5"
+          INPUT_BUCKET: "bp-ecg-input"
+          OUTPUT_BUCKET: "bp-ecg-output"
+          AWS_REGION: "us-east-1"

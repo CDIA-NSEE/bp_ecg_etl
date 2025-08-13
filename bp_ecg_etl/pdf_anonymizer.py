@@ -6,7 +6,18 @@ from typing import List, Tuple
 from PIL import Image, ImageDraw
 import structlog
 
-from . import config
+from .config import (
+    LINE_TOLERANCE,
+    PREVLINE_TOLERANCE,
+    PADDING,
+    LABELS_SAME_LINE,
+    KEEP_LABELS,
+    CRM_TOKENS,
+    PAGE1_REDACT_COORDS,
+    PAGE2_REDACT_COORDS,
+    DPI_PAGE2_RENDER,
+    IMAGE_REDACT_MODE,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -19,8 +30,10 @@ def clamp01(v: float) -> float:
 def to_abs_rect(page: fitz.Page, rel_rect) -> fitz.Rect:
     """Convert relative coordinates to absolute rectangle."""
     x0r, y0r, x1r, y1r = [clamp01(v) for v in rel_rect]
-    if x1r < x0r: x0r, x1r = x1r, x0r
-    if y1r < y0r: y0r, y1r = y1r, y0r
+    if x1r < x0r:
+        x0r, x1r = x1r, x0r
+    if y1r < y0r:
+        y0r, y1r = y1r, y0r
     b = page.bound()
     return fitz.Rect(
         b.x0 + b.width * x0r,
@@ -45,7 +58,7 @@ def words_by_line(page) -> List[List[Tuple[float, float, float, float, str]]]:
     lines, current, prev_y = [], [], None
     for w in words:
         y0 = w[1]
-        if prev_y is None or abs(y0 - prev_y) <= config.LINE_TOLERANCE:
+        if prev_y is None or abs(y0 - prev_y) <= LINE_TOLERANCE:
             current.append((w[0], w[1], w[2], w[3], w[4]))
             prev_y = y0 if prev_y is None else (prev_y + y0) / 2.0
         else:
@@ -65,30 +78,38 @@ def rect_of_words(words_line, start_idx, end_idx) -> fitz.Rect:
     xs1 = [w[2] for w in words_line[start_idx:end_idx]]
     ys1 = [w[3] for w in words_line[start_idx:end_idx]]
     return fitz.Rect(
-        min(xs0) - config.PADDING, min(ys0) - config.PADDING,
-        max(xs1) + config.PADDING, max(ys1) + config.PADDING
+        min(xs0) - PADDING, min(ys0) - PADDING, max(xs1) + PADDING, max(ys1) + PADDING
     )
 
 
 def redact_line_values_after_label(page, labels_set):
-    """Redact values after specific labels."""
+    """Redact values after specific labels - WORKING LOGIC FROM debug_redaction.py"""
     lines = words_by_line(page)
-    for line in lines:
+    
+    for line_num, line in enumerate(lines):
         texts = [w[4] for w in line]
+        
         for i, tok in enumerate(texts):
             tok_norm = tok if tok.endswith(":") else (tok + ":")
-            if tok_norm in labels_set and tok_norm not in config.KEEP_LABELS:
+            
+            if tok_norm in labels_set and tok_norm not in KEEP_LABELS:
                 start_idx = i + 1
                 if start_idx >= len(line):
                     continue
+                
                 end_idx = len(line)
+                
+                # Look for next label
                 for j in range(start_idx, len(texts)):
                     t_norm = texts[j] if texts[j].endswith(":") else (texts[j] + ":")
-                    if t_norm in labels_set or t_norm in config.KEEP_LABELS:
+                    if t_norm in labels_set or t_norm in KEEP_LABELS:
                         end_idx = j
                         break
+                
                 if end_idx > start_idx:
-                    page.add_redact_annot(rect_of_words(line, start_idx, end_idx), fill=(0, 0, 0))
+                    # Calculate rectangle and add redaction
+                    rect = rect_of_words(line, start_idx, end_idx)
+                    page.add_redact_annot(rect, fill=(0, 0, 0))
 
 
 def redact_crm_and_upper_name(page):
@@ -98,12 +119,12 @@ def redact_crm_and_upper_name(page):
     for line in lines:
         texts = [w[4] for w in line]
         for i, tok in enumerate(texts):
-            if tok.strip() in config.CRM_TOKENS:
+            if tok.strip() in CRM_TOKENS:
                 page.add_redact_annot(rect_of_words(line, i, len(line)), fill=(0, 0, 0))
 
     # Redact the line above CRM (signature), if not a label
     crm_rects = []
-    for label in config.CRM_TOKENS:
+    for label in CRM_TOKENS:
         for r in page.search_for(label, quads=False):
             crm_rects.append(r)
     if not crm_rects:
@@ -115,7 +136,7 @@ def redact_crm_and_upper_name(page):
     for crm_r in crm_rects:
         candidates = []
         for rect, line in line_rects:
-            if rect.y1 <= crm_r.y0 and (crm_r.y0 - rect.y1) <= config.PREVLINE_TOLERANCE:
+            if rect.y1 <= crm_r.y0 and (crm_r.y0 - rect.y1) <= PREVLINE_TOLERANCE:
                 if (rect.x1 > crm_r.x0 - 50) and (rect.x0 < crm_r.x1 + 50):
                     candidates.append((crm_r.y0 - rect.y1, rect, line))
         if candidates:
@@ -128,88 +149,154 @@ def redact_crm_and_upper_name(page):
 
 def anonymize_text_on_page1(page1: fitz.Page):
     """Apply text-based anonymization to page 1."""
-    labels_set = set(config.LABELS_SAME_LINE + config.KEEP_LABELS)
+    # Include ALL labels (SAME_LINE + KEEP) for proper next-label detection
+    # The redaction logic will filter out KEEP_LABELS automatically
+    labels_set = set(LABELS_SAME_LINE + KEEP_LABELS)
     redact_line_values_after_label(page1, labels_set)
     redact_crm_and_upper_name(page1)
 
 
-def anonymize_pdf(pdf_content: bytes) -> bytes:
-    """Main anonymization function."""
-    logger.info("Starting PDF anonymization", pdf_size=len(pdf_content))
+def anonymize_single_page_pdf(doc: fitz.Document) -> bytes:
+    """Anonymize PDF with only 1 page - WORKING LOGIC FROM debug_redaction.py"""
+    logger.info("Processing single-page PDF")
+
+    page1 = doc[0]
     
+    # Apply the EXACT working logic from debug_redaction.py
+    lines = words_by_line(page1)
+    labels_set = set(LABELS_SAME_LINE + KEEP_LABELS)
+    
+    # Add text-based redactions using the working logic
+    for line_num, line in enumerate(lines):
+        texts = [w[4] for w in line]
+        
+        for i, tok in enumerate(texts):
+            tok_norm = tok if tok.endswith(":") else (tok + ":")
+            
+            if tok_norm in labels_set and tok_norm not in KEEP_LABELS:
+                start_idx = i + 1
+                if start_idx >= len(line):
+                    continue
+                
+                end_idx = len(line)
+                
+                # Look for next label
+                for j in range(start_idx, len(texts)):
+                    t_norm = texts[j] if texts[j].endswith(":") else (texts[j] + ":")
+                    if t_norm in labels_set or t_norm in KEEP_LABELS:
+                        end_idx = j
+                        break
+                
+                if end_idx > start_idx:
+                    # Calculate rectangle and add redaction
+                    rect = rect_of_words(line, start_idx, end_idx)
+                    page1.add_redact_annot(rect, fill=(0, 0, 0))
+    
+    # Apply CRM redactions
+    redact_crm_and_upper_name(page1)
+
+    # Apply coordinate-based redaction for page 1
+    for coords in PAGE1_REDACT_COORDS:
+        page1.add_redact_annot(to_abs_rect(page1, coords), fill=(0, 0, 0))
+
+    # Apply all redactions (preserve vector format)
+    page1.apply_redactions()
+
+    # Save and return the modified PDF
+    output_buffer = io.BytesIO()
+    doc.save(output_buffer)
+
+    logger.info("Single-page PDF anonymization completed")
+    return output_buffer.getvalue()
+
+
+def anonymize_multi_page_pdf(doc: fitz.Document) -> bytes:
+    """Anonymize PDF with 2+ pages using full method (page1 + rasterized page2)."""
+    logger.info("Processing multi-page PDF", pages=len(doc))
+
+    # Process Page 1: Text + Coordinate redaction (preserve vector)
+    page1 = doc[0]
+
+    # Apply text-based redaction
+    anonymize_text_on_page1(page1)
+
+    # Apply coordinate-based redaction
+    for coords in PAGE1_REDACT_COORDS:
+        page1.add_redact_annot(to_abs_rect(page1, coords), fill=(0, 0, 0))
+
+    # Apply all redactions
+    page1.apply_redactions()
+
+    # Create output PDF with page 1
+    output_doc = fitz.open()
+    output_doc.insert_pdf(doc, from_page=0, to_page=0)
+
+    # Process Page 2: Rasterize and apply coordinate redaction
+    page2 = doc[1]
+
+    # Render page 2 to image
+    img = render_page_to_image(page2, DPI_PAGE2_RENDER)
+    draw = ImageDraw.Draw(img)
+
+    # Apply coordinate redaction on the image
+    for coords in PAGE2_REDACT_COORDS:
+        # Convert relative coordinates to absolute pixel coordinates
+        x1 = int(coords[0] * img.width)
+        y1 = int(coords[1] * img.height)
+        x2 = int(coords[2] * img.width)
+        y2 = int(coords[3] * img.height)
+
+        # Draw black rectangle
+        draw.rectangle([x1, y1, x2, y2], fill=(0, 0, 0))
+
+    # Convert image back to PDF page
+    img_buffer = io.BytesIO()
+    img.save(img_buffer, format="PNG")
+    img_buffer.seek(0)
+
+    # Create new page from image using proper method
+    page2_rect = fitz.Rect(0, 0, img.width, img.height)
+    new_page = output_doc.new_page(width=page2_rect.width, height=page2_rect.height)
+    new_page.insert_image(page2_rect, stream=img_buffer.getvalue())
+
+    # Save final PDF
+    output_buffer = io.BytesIO()
+    output_doc.save(output_buffer)
+    output_doc.close()
+
+    logger.info("Multi-page PDF anonymization completed")
+    return output_buffer.getvalue()
+
+
+def anonymize_pdf(pdf_content: bytes) -> bytes:
+    """Main anonymization function with conditional logic based on page count."""
+    logger.info("Starting PDF anonymization", pdf_size=len(pdf_content))
+
     # Open PDF
     doc = fitz.open(stream=pdf_content, filetype="pdf")
-    if len(doc) < 2:
+    page_count = len(doc)
+
+    logger.info("PDF page count detected", pages=page_count)
+
+    if page_count == 0:
         doc.close()
-        raise ValueError("PDF must have at least 2 pages")
-    
+        raise ValueError("PDF must have at least 1 page")
+
     try:
-        # Process Page 1: Text + Coordinate redaction (preserve vector)
-        page1 = doc[0]
-        
-        # Apply text-based redaction
-        anonymize_text_on_page1(page1)
-        
-        # Apply coordinate-based redaction
-        for coords in config.PAGE1_REDACT_COORDS:
-            page1.add_redact_annot(to_abs_rect(page1, coords), fill=(0, 0, 0))
-        
-        # Apply all redactions and burn into images
-        page1.apply_redactions(images=config.IMAGE_REDACT_MODE)
-        
-        # Create output PDF with page 1
-        output_doc = fitz.open()
-        output_doc.insert_pdf(doc, from_page=0, to_page=0)
-        
-        # Process Page 2: Rasterize and apply coordinate redaction
-        page2 = doc[1]
-        
-        # Render page 2 to image
-        img = render_page_to_image(page2, config.DPI_PAGE2_RENDER)
-        draw = ImageDraw.Draw(img)
-        b = page2.bound()
-        W, H = img.size
-        
-        # Apply coordinate redaction to image
-        for coords in config.PAGE2_REDACT_COORDS:
-            r = to_abs_rect(page2, coords)
-            x0 = int((r.x0 - b.x0) / b.width * W)
-            y0 = int((r.y0 - b.y0) / b.height * H)
-            x1 = int((r.x1 - b.x0) / b.width * W)
-            y1 = int((r.y1 - b.y0) / b.height * H)
-            draw.rectangle([x0, y0, x1, y1], fill=(0, 0, 0))
-        
-        # Convert image back to PDF page
-        width, height = img.size
-        page2_new = output_doc.new_page(width=width, height=height)
-        
-        # Save image to bytes and insert
-        img_bytes = io.BytesIO()
-        img.save(img_bytes, format='PNG', optimize=True)
-        img_bytes.seek(0)
-        
-        page2_new.insert_image(
-            fitz.Rect(0, 0, width, height),
-            stream=img_bytes.getvalue()
-        )
-        
-        # Clean up metadata
-        try:
-            output_doc.set_metadata({})
-        except Exception:
-            pass  # Ignore metadata errors
-        
-        # Convert to bytes
-        output_bytes = output_doc.tobytes(garbage=4, deflate=True)
-        
-        logger.info(
-            "PDF anonymization completed",
-            input_size=len(pdf_content),
-            output_size=len(output_bytes)
-        )
-        
-        return output_bytes
-        
+        if page_count == 1:
+            # Single page: use only page1 anonymization method
+            return anonymize_single_page_pdf(doc)
+
+        elif page_count >= 2:
+            # Multi-page: use full method (page1 + rasterized page2)
+            return anonymize_multi_page_pdf(doc)
+
+        else:
+            raise ValueError("Invalid page count")
+
+    except Exception as e:
+        logger.error("PDF anonymization failed", error=str(e), pages=page_count)
+        raise
+
     finally:
         doc.close()
-        output_doc.close()
