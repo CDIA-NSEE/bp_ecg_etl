@@ -1,236 +1,283 @@
-# BP-ECG ETL - Sistema de Anonimização de PDFs
+# BP-ECG ETL
 
-🏥 **Sistema de anonimização automática de PDFs de ECG para o projeto BP-ECG**
+**High-performance PDF anonymization pipeline** for ECG medical documents. Runs on **AWS ECS Fargate** or **AWS Lambda** for scalable, automated processing.
 
-Este sistema processa PDFs de exames de ECG removendo informações pessoais sensíveis (nome, CPF, RG, CRM) enquanto preserva dados clínicos essenciais (sexo, data/hora do exame, resultados médicos).
+> 🚀 **NEW**: ECS Fargate support for processing millions of PDFs! See [ECS_VS_LAMBDA.md](./ECS_VS_LAMBDA.md) for comparison.
 
-## ✨ Funcionalidades
+## 🎯 Quick Stats
 
-- 🔒 **Anonimização Seletiva**: Remove apenas dados pessoais, preserva informações clínicas
-- 📄 **Processamento Inteligente**: Lógica diferenciada para PDFs de 1 página vs 2+ páginas
-- 🏷️ **Nomes Únicos**: Geração de nomes únicos usando ULID para evitar conflitos
-- ☁️ **Integração S3**: Processamento automático via buckets S3
-- ⚡ **AWS Lambda**: Deploy como função serverless
-- 📊 **Logging Estruturado**: Monitoramento completo com structlog
-- 🐳 **LocalStack**: Teste local completo
+| Metric | Value |
+|--------|-------|
+| **Throughput** | 33 PDFs/second (ECS, 50 workers) |
+| **Time for 1.5M PDFs** | 12-14 hours (ECS) |
+| **Cost per 1.5M PDFs** | ~$9.48 (ECS Fargate) |
+| **Compression** | ~35% reduction (GZIP) |
 
-## 🚀 Deploy Rápido
+## Features
 
-### Pré-requisitos
+- **Selective Anonymization**: Removes PII (name, CPF, RG, CRM) while preserving clinical data
+- **Intelligent Processing**: Different strategies for single-page vs multi-page PDFs
+- **Unique Filenames**: ULID-based naming to prevent conflicts
+- **S3 Integration**: Automatic processing triggered by S3 uploads
+- **Structured Logging**: JSON logs with structlog
+- **Local Testing**: Full LocalStack support
+
+## Prerequisites
+
+- Docker and docker-compose
+- AWS CLI
+- UV package manager
+- Python 3.12+
 
 ```bash
-# Instalar dependências
-sudo apt install python3-pip python3-venv
-pip install uv
+# Install UV
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Instalar AWS CLI
-curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-unzip awscliv2.zip && sudo ./aws/install
-
-# Iniciar LocalStack
+# Start LocalStack
 docker-compose up -d
 ```
 
-### Deploy da Função Lambda
+## Development Setup
+
+Install all dependencies (including dev tools):
 
 ```bash
-# Deploy simples e rápido
-./deploy_simple.sh
+# Install project dependencies
+uv pip install -e ".[dev]"
 
-# OU deploy completo com configurações avançadas
-python deploy_to_localstack.py
+# Or install in a virtual environment
+uv venv
+source .venv/bin/activate
+uv pip install -e ".[dev]"
 ```
 
-## 🧪 Como Testar
+## Quick Start
 
-### 1. Configurar Credenciais LocalStack
+### Option 1: ECS Fargate (Recommended for Large-Scale)
+
+**Best for**: Processing millions of PDFs (1M+), batch jobs, long-running tasks
+
+```bash
+# 1. Deploy ECS infrastructure
+./deploy_ecs.sh
+
+# 2. Run task (processes ALL unprocessed PDFs until complete)
+aws ecs run-task \
+  --cluster bp-ecg-cluster \
+  --task-definition bp-ecg-processor \
+  --launch-type FARGATE \
+  --network-configuration "awsvpcConfiguration={subnets=[subnet-xxx],securityGroups=[sg-xxx],assignPublicIp=ENABLED}"
+
+# 3. Monitor logs
+aws logs tail /ecs/bp-ecg-processor --follow
+```
+
+**Features**:
+- ⚡ 50 parallel workers (vs 10-20 in Lambda)
+- 🕐 Unlimited runtime (vs 15 min in Lambda)
+- 💰 ~50% cheaper for large batches
+- 🔄 Stream processing with automatic skip of already-processed PDFs
+- 📦 Hive-partitioned output: `year=2025/month=01/day=15/anonymized_ULID.pdf.gz`
+- 🗜️ GZIP compression (~35% size reduction)
+
+### Option 2: Lambda (LocalStack)
+
+**Best for**: Event-driven processing, small batches (<1000 PDFs)
+
+```bash
+./deploy_simple.sh
+```
+
+## Deployment Comparison
+
+| Feature | Lambda | ECS Fargate |
+|---------|--------|-------------|
+| **Setup Time** | 5 min | 15 min |
+| **Best For** | Event-driven, <1K PDFs | Batch processing, 1M+ PDFs |
+| **Cost (1.5M PDFs)** | ~$17 | ~$9 |
+| **Time (1.5M PDFs)** | 31-62 hours | 12-14 hours |
+| **Complexity** | Medium | Low |
+
+📖 **Detailed comparison**: See [ECS_VS_LAMBDA.md](./ECS_VS_LAMBDA.md)
+
+## Testing
+
+Upload a PDF to trigger processing:
 
 ```bash
 export AWS_ACCESS_KEY_ID=test
 export AWS_SECRET_ACCESS_KEY=test
 export AWS_DEFAULT_REGION=us-east-1
-```
 
-### 2. Fazer Upload de PDF
+# Upload PDF (triggers Lambda automatically)
+aws s3 cp example.pdf s3://raw-pdfs/ --endpoint-url http://localhost:4566
 
-```bash
-# Enviar PDF para processamento
-aws s3 cp "exemplo.pdf" s3://raw-pdfs/ --endpoint-url http://localhost:4566
-```
-
-### 3. Verificar Resultado
-
-```bash
-# Listar PDFs anonimizados
+# Check anonymized output
 aws s3 ls s3://anon-pdfs/ --endpoint-url http://localhost:4566
-
-# Baixar PDF anonimizado
-aws s3 cp s3://anon-pdfs/anonymized_XXXXX.pdf . --endpoint-url http://localhost:4566
 ```
 
-### 4. Teste Automatizado
-
-```bash
-# Executar script de teste
-python test_function.py
-```
-
-## 📁 Estrutura do Projeto
+## Project Structure
 
 ```
 bp_ecg_etl/
-├── 📦 bp_ecg_etl/                 # Código principal
+├── bp_ecg_etl/
 │   ├── __init__.py
-│   ├── main.py                    # Ponto de entrada
-│   ├── lambda_main.py             # Handler Lambda
-│   ├── config.py                  # Configurações
-│   ├── pdf_anonymizer.py          # Lógica de anonimização
-│   └── s3_utils.py               # Utilitários S3
-├── 🚀 deploy_simple.sh            # Script de deploy rápido
-├── 🐍 deploy_to_localstack.py     # Script de deploy completo
-├── 🧪 test_function.py            # Script de teste
-├── 📋 requirements.txt            # Dependências completas
-├── 📦 requirements-lambda.txt     # Dependências otimizadas
-├── 🐳 docker-compose.yml          # LocalStack
-└── 📖 README.md                   # Esta documentação
+│   ├── config.py              # Environment-based configuration
+│   ├── lambda_main.py         # Lambda handler
+│   ├── logging_config.py      # Structured logging setup
+│   ├── main.py                # Entry point
+│   ├── pdf_anonymizer.py      # Core anonymization logic
+│   └── s3_utils.py            # S3 download/upload
+├── deploy_simple.sh           # LocalStack deployment script
+├── docker-compose.yml         # LocalStack configuration
+├── pyproject.toml             # Project dependencies
+└── requirements-lambda.txt    # Lambda-optimized dependencies
 ```
 
-## ⚙️ Configuração
+## Configuration
 
-### Variáveis de Ambiente
+### Environment Variables
 
-| Variável | Descrição | Padrão |
-|----------|-----------|--------|
-| `INPUT_BUCKET` | Bucket S3 de entrada | `raw-pdfs` |
-| `OUTPUT_BUCKET` | Bucket S3 de saída | `anon-pdfs` |
-| `AWS_REGION` | Região AWS | `us-east-1` |
-| `DPI_PAGE2_RENDER` | DPI para página 2 | `150` |
-| `LINE_TOLERANCE` | Tolerância de linha | `3` |
-| `PREVLINE_TOLERANCE` | Tolerância linha anterior | `10` |
-| `PADDING` | Padding para redação | `2` |
+| Variable | Description | Default |
+|----------|-------------|--------|
+| `INPUT_BUCKET` | S3 input bucket | `raw-pdfs` |
+| `OUTPUT_BUCKET` | S3 output bucket | `anon-pdfs` |
+| `AWS_REGION` | AWS region | `us-east-1` |
+| `MAX_WORKERS` | Concurrent workers (ECS: 50, Lambda: 10-20) | `50` |
+| `QUEUE_SIZE` | asyncio.Queue buffer size | `200` |
+| `DPI_PAGE2_RENDER` | DPI for page 2 rendering | `150` |
+| `LINE_TOLERANCE` | Line detection tolerance | `1.0` |
+| `PREVLINE_TOLERANCE` | Previous line tolerance | `10.0` |
+| `PADDING` | Redaction padding | `1.0` |
 
-### Configuração Lambda
+### Lambda Configuration
 
-- **Runtime**: Python 3.9
-- **Memory**: 1024MB
-- **Timeout**: 300s (5 minutos)
-- **Handler**: `bp_ecg_etl.lambda_main.lambda_handler`
+- **Runtime**: Python 3.12
+- **Memory**: 10GB (10,240 MB) - AWS maximum
+- **Timeout**: 900s (15 minutes) - AWS maximum
+- **Handler**: `bp_ecg_etl.main.lambda_handler`
+- **Workers**: 10-20 (limited by memory)
 
-## 🔧 Desenvolvimento
+### ECS Fargate Configuration
 
-### Setup do Ambiente
+- **CPU**: 16 vCPUs (16,384 units)
+- **Memory**: 32 GB (32,768 MB) - configurable up to 120 GB
+- **Runtime**: Unlimited (runs until completion)
+- **Workers**: 50 concurrent (configurable via `MAX_WORKERS`)
+- **Container Image**: Multi-stage Docker build with Python 3.12-slim
+- **Networking**: AWS VPC with public IP or NAT Gateway for S3 access
+
+**Output Structure**: Hive-partitioned with compression
+```
+output-bucket/
+└── year=2025/
+    └── month=01/
+        └── day=15/
+            └── anonymized_01HXX123.pdf.gz
+```
+
+## Development
+
+### Available Tasks (via taskipy)
 
 ```bash
-# Criar ambiente virtual
-python3 -m venv .venv
-source .venv/bin/activate
+# Format code
+task format
 
-# Instalar dependências
-uv pip install -r requirements.txt
+# Lint code
+task lint
+
+# Lint and auto-fix
+task lint-fix
+
+# Type check with mypy
+task type-check
+
+# Run tests
+task test
+
+# Run tests with coverage
+task test-cov
+
+# Run all checks (format + lint + type-check)
+task check-all
+
+# Pre-commit hook (format + fix + type-check)
+task pre-commit
 ```
 
-### Teste Local
+### Manual Commands
 
 ```bash
-# Teste de função específica
-python -c "from bp_ecg_etl.main import process_pdf_local; process_pdf_local('input.pdf', 'output.pdf')"
+# Format code
+uv run ruff format .
+
+# Lint code
+uv run ruff check .
+
+# Type check
+uv run mypy bp_ecg_etl/
 ```
 
-## 📊 Monitoramento
+## Anonymization Rules
 
-### Logs do CloudWatch (LocalStack Pro)
+### Data Removed
+
+- Patient name (Nome)
+- CPF (tax ID)
+- RG (national ID)
+- Medical registration (CRM)
+- Doctor name
+- Age (Idade)
+- Health insurance (Convênio)
+
+### Data Preserved
+
+- Sex (Sexo)
+- Exam date and time
+- Heart rate (Frequência cardíaca)
+- PR interval
+- QRS duration
+- QT/QTc interval
+- Axis (Eixo P-QRS-T)
+- Medical interpretation
+
+### Processing Strategy
+
+- **Single-page PDFs**: Text-based redaction only (preserves vector quality)
+- **Multi-page PDFs**: Text redaction on page 1, coordinate-based redaction on rasterized page 2
+
+## Dependencies
+
+All dependencies are managed via `pyproject.toml` with pinned versions for reproducibility.
+
+### Core Dependencies
+
+- **aioboto3==15.0.0**: Async S3 operations
+- **boto3==1.38.27**: AWS SDK
+- **pillow==11.3.0**: Image processing
+- **pymupdf**: PDF manipulation
+- **structlog==25.4.0**: Structured logging
+- **ulid-py==1.1.0**: Unique filename generation
+- **pydantic==2.11.7**: Configuration validation
+
+### Dev Dependencies
+
+- **ruff**: Fast Python linter and formatter
+- **mypy**: Static type checker
+- **pytest**: Testing framework
+- **taskipy**: Task runner
+
+### Installation
 
 ```bash
-# Visualizar logs em tempo real
-aws logs tail /aws/lambda/bp-ecg-etl-anonymizer --endpoint-url http://localhost:4566 --follow
+# Production dependencies only
+uv pip install .
+
+# Development dependencies
+uv pip install -e ".[dev]"
 ```
 
-### Métricas de Processamento
+## License
 
-A função Lambda retorna métricas detalhadas:
-
-```json
-{
-  "statusCode": 200,
-  "body": {
-    "message": "PDF processing completed",
-    "summary": {
-      "total_files": 1,
-      "successful": 1,
-      "failed": 0
-    },
-    "results": [{
-      "status": "success",
-      "input_bucket": "raw-pdfs",
-      "input_key": "exemplo.pdf",
-      "output_bucket": "anon-pdfs",
-      "output_key": "anonymized_01K2H0W0JN0AZCBKTYSE3P5N1B.pdf",
-      "processing_time": 0.246,
-      "input_size": 188185,
-      "output_size": 217058
-    }]
-  }
-}
-```
-
-## 🛡️ Segurança e Privacidade
-
-### Dados Removidos
-- ✅ Nome do paciente
-- ✅ CPF
-- ✅ RG
-- ✅ CRM do médico
-- ✅ Nome do médico
-
-### Dados Preservados
-- ✅ Sexo do paciente
-- ✅ Data do exame
-- ✅ Hora do exame
-- ✅ Resultados e interpretações médicas
-- ✅ Gráficos e ondas do ECG
-
-## 🐛 Solução de Problemas
-
-### Erro: "ResourceConflictException"
-```bash
-# Aguardar conclusão da atualização anterior
-sleep 15 && ./deploy_simple.sh
-```
-
-### Erro: "No such file or directory"
-```bash
-# Verificar se LocalStack está rodando
-docker-compose ps
-
-# Reiniciar se necessário
-docker-compose restart
-```
-
-### Logs não aparecem
-```bash
-# LocalStack Community não suporta CloudWatch Logs
-# Use LocalStack Pro ou monitore via métricas da função
-```
-
-## 📈 Performance
-
-- **PDF 1 página**: ~0.2s
-- **PDF 2+ páginas**: ~0.5s
-- **Throughput**: ~200 PDFs/minuto
-- **Memory usage**: ~200MB por PDF
-
-## 🤝 Contribuição
-
-1. Fork o projeto
-2. Crie uma branch (`git checkout -b feature/nova-funcionalidade`)
-3. Commit suas mudanças (`git commit -am 'Adiciona nova funcionalidade'`)
-4. Push para a branch (`git push origin feature/nova-funcionalidade`)
-5. Abra um Pull Request
-
-## 📄 Licença
-
-Este projeto é licenciado sob a licença MIT - veja o arquivo LICENSE para detalhes.
-
----
-
-**🏥 BP-ECG ETL** - Anonimização segura e eficiente de PDFs médicos
+MIT License - see LICENSE file for details.

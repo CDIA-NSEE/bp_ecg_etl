@@ -1,15 +1,18 @@
-"""Simple configuration using environment variables."""
+"""Configuration using environment variables."""
 
 import os
 
 # S3 Configuration
-INPUT_BUCKET = os.getenv("INPUT_BUCKET", "test-input-bucket")
-OUTPUT_BUCKET = os.getenv("OUTPUT_BUCKET", "test-output-bucket")
+INPUT_BUCKET = os.getenv("INPUT_BUCKET", "raw-pdfs")
+OUTPUT_BUCKET = os.getenv("OUTPUT_BUCKET", "anon-pdfs")
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 
+# Concurrency Configuration (ECS/Lambda)
+MAX_WORKERS = int(os.getenv("MAX_WORKERS", "50"))  # 50 for ECS, 10-20 for Lambda
+QUEUE_SIZE = int(os.getenv("QUEUE_SIZE", "200"))  # Buffer size for asyncio.Queue
+
 # Processing Configuration
-DPI_PAGE2_RENDER = int(os.getenv("DPI_PAGE2_RENDER", "220"))
-IMAGE_REDACT_MODE = int(os.getenv("IMAGE_REDACT_MODE", "2"))  # 1 = PDF_REDACT_IMAGE_NONE
+DPI_PAGE2_RENDER = int(os.getenv("DPI_PAGE2_RENDER", "150"))
 
 # Anonymization Rules
 LINE_TOLERANCE = float(os.getenv("LINE_TOLERANCE", "1.0"))
@@ -41,18 +44,11 @@ CRM_TOKENS = ["CRM", "CRM:", "crm"]
 # Coordinate-based redaction areas (relative coordinates 0-1)
 PAGE1_REDACT_COORDS = [
     (0.35, 0.90, 0.65, 0.95),  # Footer signature/CRM area
-    (50, 50, 200, 80),   # Example coordinates - adjust as needed
-    (300, 100, 500, 130)
 ]
 
 PAGE2_REDACT_COORDS = [
-    (0.02, 0.10, 0.12, 0.17),   # Top left (Name/RG...)
-    (0.13, 0.10, 0.18, 0.135),  # Top left (CPF...)
+    (0.02, 0.10, 0.12, 0.17),   # Top left (Name/RG)
+    (0.13, 0.10, 0.18, 0.135),  # Top left (CPF)
     (0.40, 0.94, 0.98, 0.97),   # Footer (signature/CRM bar)
     (0.88, 0.85, 0.96, 0.92),   # Footer (right block)
-    (100, 200, 400, 250),  # Example coordinates - adjust as needed
-    (50, 300, 300, 350)
 ]
-
-# Image processing
-IMAGE_REDACT_MODE = "RGB"

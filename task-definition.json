@@ -1,0 +1,70 @@
+{
+  "family": "bp-ecg-processor",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "16384",
+  "memory": "32768",
+  "executionRoleArn": "arn:aws:iam::YOUR_ACCOUNT_ID:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::YOUR_ACCOUNT_ID:role/bp-ecg-task-role",
+  "containerDefinitions": [
+    {
+      "name": "bp-ecg-processor",
+      "image": "YOUR_ECR_REPO/bp-ecg-etl:latest",
+      "essential": true,
+      "environment": [
+        {
+          "name": "INPUT_BUCKET",
+          "value": "raw-pdfs"
+        },
+        {
+          "name": "OUTPUT_BUCKET",
+          "value": "anon-pdfs"
+        },
+        {
+          "name": "AWS_REGION",
+          "value": "us-east-1"
+        },
+        {
+          "name": "MAX_WORKERS",
+          "value": "50"
+        },
+        {
+          "name": "QUEUE_SIZE",
+          "value": "200"
+        },
+        {
+          "name": "DPI_PAGE2_RENDER",
+          "value": "150"
+        },
+        {
+          "name": "LINE_TOLERANCE",
+          "value": "1.0"
+        },
+        {
+          "name": "PREVLINE_TOLERANCE",
+          "value": "10.0"
+        },
+        {
+          "name": "PADDING",
+          "value": "1.0"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/bp-ecg-processor",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs",
+          "awslogs-create-group": "true"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL", "python -c 'import bp_ecg_etl; print(\"OK\")' || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 10
+      }
+    }
+  ]
+}

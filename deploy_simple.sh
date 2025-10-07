@@ -1,55 +1,65 @@
 #!/bin/bash
-# Script simples para deploy da função Lambda para LocalStack
+# Deploy Lambda function to LocalStack
 
 set -e
 
-echo "🚀 BP-ECG ETL - Deploy Simples para LocalStack"
-echo "=============================================="
-
-# Configurações
+# Configuration
 FUNCTION_NAME="bp-ecg-etl-anonymizer"
 HANDLER="bp_ecg_etl.main.lambda_handler"
 RUNTIME="python3.12"
 LOCALSTACK_ENDPOINT="http://localhost:4566"
+INPUT_BUCKET="raw-pdfs"
+OUTPUT_BUCKET="anon-pdfs"
 
-# Configurar AWS CLI para LocalStack
+# AWS credentials for LocalStack
 export AWS_ACCESS_KEY_ID=test
 export AWS_SECRET_ACCESS_KEY=test
 export AWS_DEFAULT_REGION=us-east-1
 
-echo "📦 Criando pacote ZIP..."
+echo "[1/5] Creating Lambda package..."
 
-# Criar diretório temporário
+# Create temporary directory
 TEMP_DIR=$(mktemp -d)
 ZIP_FILE="$TEMP_DIR/lambda-function.zip"
 
-# Copiar código fonte
+# Copy source code
 cp -r bp_ecg_etl "$TEMP_DIR/"
 
-# Instalar dependências com uv (mais rápido) - versão otimizada para Lambda
-echo "📚 Instalando dependências essenciais..."
-uv pip install -r requirements-lambda.txt --target "$TEMP_DIR/" --quiet
+# Install dependencies with UV from pyproject.toml
+echo "[2/5] Installing dependencies with UV..."
+uv pip install --no-deps --target "$TEMP_DIR/" \
+    aioboto3==15.0.0 \
+    aiobotocore==2.23.0 \
+    boto3==1.38.27 \
+    botocore==1.38.27 \
+    pillow==11.3.0 \
+    pymupdf \
+    structlog==25.4.0 \
+    ulid-py==1.1.0 \
+    pydantic==2.11.7 \
+    pydantic-core==2.33.2 \
+    typing-extensions==4.14.1 \
+    annotated-types==0.7.0 \
+    python-dotenv==1.1.1
 
-# Criar ZIP
+# Create ZIP package
 cd "$TEMP_DIR"
 zip -r lambda-function.zip . -q
 cd - > /dev/null
 
-echo "✅ Pacote criado: $ZIP_FILE"
+echo "[3/5] Creating S3 buckets..."
+aws s3 mb s3://$INPUT_BUCKET --endpoint-url $LOCALSTACK_ENDPOINT 2>/dev/null || true
+aws s3 mb s3://$OUTPUT_BUCKET --endpoint-url $LOCALSTACK_ENDPOINT 2>/dev/null || true
 
-echo "🪣 Criando buckets S3..."
-aws s3 mb s3://raw-pdfs --endpoint-url $LOCALSTACK_ENDPOINT 2>/dev/null || echo "   Bucket raw-pdfs já existe"
-aws s3 mb s3://anon-pdfs --endpoint-url $LOCALSTACK_ENDPOINT 2>/dev/null || echo "   Bucket anon-pdfs já existe"
+echo "[4/5] Deploying Lambda function..."
 
-echo "🚀 Fazendo deploy da função Lambda..."
-
-# Criar arquivo de configuração de ambiente
+# Environment variables
 ENV_FILE="$TEMP_DIR/env.json"
-cat > "$ENV_FILE" << 'EOF'
+cat > "$ENV_FILE" << EOF
 {
   "Variables": {
-    "INPUT_BUCKET": "raw-pdfs",
-    "OUTPUT_BUCKET": "anon-pdfs",
+    "INPUT_BUCKET": "$INPUT_BUCKET",
+    "OUTPUT_BUCKET": "$OUTPUT_BUCKET",
     "AWS_REGION": "us-east-1",
     "DPI_PAGE2_RENDER": "150",
     "LINE_TOLERANCE": "5",
@@ -59,9 +69,9 @@ cat > "$ENV_FILE" << 'EOF'
 }
 EOF
 
-# Tentar atualizar função existente primeiro
+# Deploy or update function
 if aws lambda get-function --function-name $FUNCTION_NAME --endpoint-url $LOCALSTACK_ENDPOINT >/dev/null 2>&1; then
-    echo "♻️  Atualizando função existente..."
+    echo "  Updating existing function..."
     aws lambda update-function-code \
         --function-name $FUNCTION_NAME \
         --zip-file fileb://$ZIP_FILE \
@@ -69,10 +79,12 @@ if aws lambda get-function --function-name $FUNCTION_NAME --endpoint-url $LOCALS
     
     aws lambda update-function-configuration \
         --function-name $FUNCTION_NAME \
+        --timeout 900 \
+        --memory-size 10240 \
         --environment file://$ENV_FILE \
         --endpoint-url $LOCALSTACK_ENDPOINT >/dev/null
 else
-    echo "🆕 Criando nova função..."
+    echo "  Creating new function..."
     aws lambda create-function \
         --function-name $FUNCTION_NAME \
         --runtime $RUNTIME \
@@ -80,82 +92,54 @@ else
         --handler $HANDLER \
         --zip-file fileb://$ZIP_FILE \
         --timeout 900 \
-        --memory-size 3008 \
+        --memory-size 10240 \
         --environment file://$ENV_FILE \
         --endpoint-url $LOCALSTACK_ENDPOINT >/dev/null
 fi
 
-echo "✅ Deploy realizado com sucesso!"
+echo "[5/5] Configuring S3 trigger..."
 
-# Configurar logs do CloudWatch (se disponível)
-echo "📋 Configurando logs..."
-aws logs create-log-group --log-group-name "/aws/lambda/$FUNCTION_NAME" --endpoint-url $LOCALSTACK_ENDPOINT 2>/dev/null || echo "   Log group já existe ou serviço não disponível"
-
-# Configurar trigger automático S3 → Lambda
-echo "🔗 Configurando trigger S3 → Lambda..."
-
-# Dar permissão para S3 invocar a Lambda
+# Add Lambda permission
 aws lambda add-permission \
     --function-name $FUNCTION_NAME \
     --statement-id s3-trigger \
     --action lambda:InvokeFunction \
     --principal s3.amazonaws.com \
-    --source-arn "arn:aws:s3:::raw-pdfs" \
-    --endpoint-url $LOCALSTACK_ENDPOINT 2>/dev/null || echo "   Permissão já existe"
+    --source-arn "arn:aws:s3:::$INPUT_BUCKET" \
+    --endpoint-url $LOCALSTACK_ENDPOINT 2>/dev/null || true
 
-# Criar configuração de notificação S3
-cat > /tmp/s3-notification.json << EOF
+# Configure S3 notification
+NOTIF_FILE="/tmp/s3-notification.json"
+cat > "$NOTIF_FILE" << EOF
 {
   "LambdaFunctionConfigurations": [
     {
       "Id": "bp-ecg-etl-trigger",
       "LambdaFunctionArn": "arn:aws:lambda:us-east-1:000000000000:function:$FUNCTION_NAME",
-      "Events": ["s3:ObjectCreated:*"],
-
+      "Events": ["s3:ObjectCreated:*"]
     }
   ]
 }
 EOF
 
-# Aplicar configuração de notificação
 aws s3api put-bucket-notification-configuration \
-    --bucket raw-pdfs \
-    --notification-configuration file:///tmp/s3-notification.json \
-    --endpoint-url $LOCALSTACK_ENDPOINT && echo "✅ Trigger S3 configurado!" || echo "⚠️  Erro ao configurar trigger"
+    --bucket $INPUT_BUCKET \
+    --notification-configuration file://$NOTIF_FILE \
+    --endpoint-url $LOCALSTACK_ENDPOINT 2>/dev/null || true
 
-# Limpar arquivo temporário
-rm -f /tmp/s3-notification.json
-
-# Limpar arquivos temporários
+# Cleanup
+rm -f "$NOTIF_FILE"
 rm -rf "$TEMP_DIR"
 
 echo ""
-echo "📋 Informações da função:"
-echo "   Nome: $FUNCTION_NAME"
-echo "   Handler: $HANDLER"
-echo "   Runtime: $RUNTIME"
-echo "   Timeout: 900s (15 minutos)"
-echo "   Memory: 3008MB (~3GB)"
-echo "   Endpoint: $LOCALSTACK_ENDPOINT"
+echo "Deploy completed successfully!"
 echo ""
-echo "🧪 Para testar (TRIGGER AUTOMÁTICO):"
-echo "   # Configurar credenciais"
-echo "   export AWS_ACCESS_KEY_ID=test"
-echo "   export AWS_SECRET_ACCESS_KEY=test"
-echo "   export AWS_DEFAULT_REGION=us-east-1"
+echo "Function: $FUNCTION_NAME"
+echo "Runtime: $RUNTIME (900s timeout, 3GB memory)"
+echo "Input:   s3://$INPUT_BUCKET/"
+echo "Output:  s3://$OUTPUT_BUCKET/"
 echo ""
-echo "   # 1. Fazer upload de PDF (dispara Lambda automaticamente!)"
-echo "   aws s3 cp exemplo.pdf s3://raw-pdfs/ --endpoint-url $LOCALSTACK_ENDPOINT"
+echo "Test with:"
+echo "  aws s3 cp example.pdf s3://$INPUT_BUCKET/ --endpoint-url $LOCALSTACK_ENDPOINT"
+echo "  aws s3 ls s3://$OUTPUT_BUCKET/ --endpoint-url $LOCALSTACK_ENDPOINT"
 echo ""
-echo "   # 2. Aguardar alguns segundos para processamento..."
-echo "   sleep 5"
-echo ""
-echo "   # 3. Verificar PDF anonimizado (deve aparecer automaticamente!)"
-echo "   aws s3 ls s3://anon-pdfs/ --endpoint-url $LOCALSTACK_ENDPOINT"
-echo ""
-echo "   # 4. Ver logs do processamento automático"
-echo "   aws logs tail /aws/lambda/$FUNCTION_NAME --endpoint-url $LOCALSTACK_ENDPOINT"
-echo ""
-echo "   🎆 A Lambda é disparada AUTOMATICAMENTE quando você envia um PDF!"
-echo ""
-echo "🎉 Deploy completo!"

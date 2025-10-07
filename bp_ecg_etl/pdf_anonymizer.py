@@ -1,25 +1,29 @@
-"""Simple PDF anonymization based on original main.py logic."""
+"""PDF anonymization with intelligent text and coordinate-based redaction."""
 
 import io
+
 import fitz  # PyMuPDF
-from typing import List, Tuple
-from PIL import Image, ImageDraw
 import structlog
+from PIL import Image, ImageDraw
 
 from .config import (
-    LINE_TOLERANCE,
-    PREVLINE_TOLERANCE,
-    PADDING,
-    LABELS_SAME_LINE,
-    KEEP_LABELS,
     CRM_TOKENS,
+    DPI_PAGE2_RENDER,
+    KEEP_LABELS,
+    LABELS_SAME_LINE,
+    LINE_TOLERANCE,
+    PADDING,
     PAGE1_REDACT_COORDS,
     PAGE2_REDACT_COORDS,
-    DPI_PAGE2_RENDER,
-    IMAGE_REDACT_MODE,
+    PREVLINE_TOLERANCE,
 )
 
 logger = structlog.get_logger(__name__)
+
+# Type aliases for clarity
+Word = tuple[float, float, float, float, str]  # x0, y0, x1, y1, text
+Line = list[Word]
+Coordinates = tuple[float, float, float, float]
 
 
 def clamp01(v: float) -> float:
@@ -44,231 +48,240 @@ def to_abs_rect(page: fitz.Page, rel_rect) -> fitz.Rect:
 
 
 def render_page_to_image(page: fitz.Page, dpi: int) -> Image.Image:
-    """Render PDF page to PIL Image."""
+    """Render PDF page to PIL Image.
+    
+    Args:
+        page: PyMuPDF page object
+        dpi: Resolution in dots per inch
+        
+    Returns:
+        PIL Image object
+    """
     zoom = dpi / 72.0
     pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
-    return Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+    return Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
 
 
 def clear_pdf_metadata(doc: fitz.Document) -> None:
-    """Clear all metadata from PDF document for privacy."""
-    logger.info("Clearing PDF metadata for privacy")
+    """Clear all metadata from PDF document for privacy.
     
-    # Get current metadata for logging
-    current_metadata = doc.metadata
-    if current_metadata:
-        logger.debug("Current metadata", metadata_keys=list(current_metadata.keys()))
+    Removes standard metadata, XMP metadata, and document info.
     
-    # Clear all standard metadata fields using PyMuPDF's method
-    metadata_to_clear = {
-        'title': '',
-        'author': '',
-        'subject': '',
-        'keywords': '',
-        'creator': '',
-        'producer': '',
-        'creationDate': '',
-        'modDate': '',
-        'trapped': ''
-    }
-    
-    # Use PyMuPDF's metadata setting method
+    Args:
+        doc: PyMuPDF document object
+    """
+    logger.debug("Clearing PDF metadata")
+
+    # Clear standard metadata fields
     try:
-        # Set metadata using the document's metadata property
-        if doc.metadata is not None:
-            for key, value in metadata_to_clear.items():
-                doc.metadata[key] = value
+        doc.set_metadata({})
     except Exception as e:
         logger.warning("Could not clear standard metadata", error=str(e))
-    
-    # Clear XMP metadata (XML-based metadata)
+
+    # Clear XMP metadata
     try:
-        # Get XMP metadata
-        xmp_metadata = doc.get_xml_metadata()
-        if xmp_metadata:
-            logger.debug("Found XMP metadata, clearing it")
-            # Set empty XMP metadata
+        if doc.get_xml_metadata():
             doc.set_xml_metadata("")
-            logger.info("XMP metadata cleared successfully")
-        else:
-            logger.debug("No XMP metadata found")
     except Exception as e:
         logger.warning("Could not clear XMP metadata", error=str(e))
-    
-    # Also try to remove any custom metadata/properties
-    try:
-        # Clear document info dictionary if accessible
-        info_dict = doc.pdf_catalog()
-        if info_dict and 'Info' in info_dict:
-            # Remove Info reference
-            del info_dict['Info']
-    except Exception as e:
-        logger.warning("Could not clear extended metadata", error=str(e))
-    
-    # Additional cleanup: try to remove metadata streams
-    try:
-        # Iterate through all objects and remove metadata streams
-        for page_num in range(len(doc)):
-            page = doc[page_num]
-            # Remove page-level metadata if any
-            try:
-                page_dict = page.get_contents()
-                if page_dict and isinstance(page_dict, list):
-                    for content in page_dict:
-                        if hasattr(content, 'metadata'):
-                            content.metadata = None
-            except Exception:
-                pass  # Page-level metadata removal is optional
-    except Exception as e:
-        logger.warning("Could not clear page-level metadata", error=str(e))
-    
-    logger.info("PDF metadata clearing completed - standard, XMP, and extended metadata processed")
+
+    logger.debug("PDF metadata cleared")
 
 
-def words_by_line(page) -> List[List[Tuple[float, float, float, float, str]]]:
-    """Extract and group words by text lines."""
-    words = page.get_text("words")  # [x0,y0,x1,y1,text,...]
-    words = [w for w in words if w[4].strip()]
-    words.sort(key=lambda w: (round(w[1], 1), w[0]))
-    lines, current, prev_y = [], [], None
-    for w in words:
-        y0 = w[1]
+def words_by_line(page: fitz.Page) -> list[Line]:
+    """Extract and group words by text lines with vertical proximity.
+    
+    Args:
+        page: PyMuPDF page object
+        
+    Returns:
+        List of lines, where each line is a list of word tuples
+    """
+    words = page.get_text("words")  # Returns list of (x0, y0, x1, y1, text, ...)
+    if not words:
+        return []
+
+    # Filter empty words and sort by vertical position, then horizontal
+    valid_words: list[Word] = [
+        (w[0], w[1], w[2], w[3], w[4]) for w in words if w[4].strip()
+    ]
+    valid_words.sort(key=lambda w: (round(w[1], 1), w[0]))
+
+    # Group words into lines based on vertical proximity
+    lines: list[Line] = []
+    current_line: Line = []
+    prev_y: float | None = None
+
+    for word in valid_words:
+        y0 = word[1]
         if prev_y is None or abs(y0 - prev_y) <= LINE_TOLERANCE:
-            current.append((w[0], w[1], w[2], w[3], w[4]))
+            current_line.append(word)
             prev_y = y0 if prev_y is None else (prev_y + y0) / 2.0
         else:
-            if current:
-                lines.append(current)
-            current = [(w[0], w[1], w[2], w[3], w[4])]
+            if current_line:
+                lines.append(current_line)
+            current_line = [word]
             prev_y = y0
-    if current:
-        lines.append(current)
+
+    if current_line:
+        lines.append(current_line)
+
     return lines
 
 
-def rect_of_words(words_line, start_idx, end_idx) -> fitz.Rect:
-    """Create rectangle from word range."""
-    xs0 = [w[0] for w in words_line[start_idx:end_idx]]
-    ys0 = [w[1] for w in words_line[start_idx:end_idx]]
-    xs1 = [w[2] for w in words_line[start_idx:end_idx]]
-    ys1 = [w[3] for w in words_line[start_idx:end_idx]]
+def rect_of_words(words_line: Line, start_idx: int, end_idx: int) -> fitz.Rect:
+    """Create bounding rectangle from word range with padding.
+    
+    Args:
+        words_line: Line containing words
+        start_idx: Start index (inclusive)
+        end_idx: End index (exclusive)
+        
+    Returns:
+        Rectangle encompassing the words with padding
+    """
+    words = words_line[start_idx:end_idx]
+    if not words:
+        return fitz.Rect(0, 0, 0, 0)
+
+    xs0 = [w[0] for w in words]
+    ys0 = [w[1] for w in words]
+    xs1 = [w[2] for w in words]
+    ys1 = [w[3] for w in words]
+
     return fitz.Rect(
-        min(xs0) - PADDING, min(ys0) - PADDING, max(xs1) + PADDING, max(ys1) + PADDING
+        min(xs0) - PADDING,
+        min(ys0) - PADDING,
+        max(xs1) + PADDING,
+        max(ys1) + PADDING,
     )
 
 
-def redact_line_values_after_label(page, labels_set):
-    """Redact values after specific labels - WORKING LOGIC FROM debug_redaction.py"""
-    lines = words_by_line(page)
+def redact_line_values_after_label(page: fitz.Page, lines: list[Line], labels_set: set[str]) -> None:
+    """Redact values after specific labels on the same line.
     
-    for line_num, line in enumerate(lines):
-        texts = [w[4] for w in line]
-        
-        for i, tok in enumerate(texts):
-            tok_norm = tok if tok.endswith(":") else (tok + ":")
-            
-            if tok_norm in labels_set and tok_norm not in KEEP_LABELS:
-                start_idx = i + 1
-                if start_idx >= len(line):
-                    continue
-                
-                end_idx = len(line)
-                
-                # Look for next label
-                for j in range(start_idx, len(texts)):
-                    t_norm = texts[j] if texts[j].endswith(":") else (texts[j] + ":")
-                    if t_norm in labels_set or t_norm in KEEP_LABELS:
-                        end_idx = j
-                        break
-                
-                if end_idx > start_idx:
-                    # Calculate rectangle and add redaction
-                    rect = rect_of_words(line, start_idx, end_idx)
-                    page.add_redact_annot(rect, fill=(0, 0, 0))
-
-
-def redact_crm_and_upper_name(page):
-    """Redact CRM tokens and signature lines above them."""
-    lines = words_by_line(page)
-    # Redact "CRM" and everything to the right
+    Args:
+        page: PyMuPDF page object
+        lines: Pre-computed lines from words_by_line()
+        labels_set: Set of labels to search for
+    """
     for line in lines:
         texts = [w[4] for w in line]
-        for i, tok in enumerate(texts):
-            if tok.strip() in CRM_TOKENS:
-                page.add_redact_annot(rect_of_words(line, i, len(line)), fill=(0, 0, 0))
 
-    # Redact the line above CRM (signature), if not a label
-    crm_rects = []
-    for label in CRM_TOKENS:
-        for r in page.search_for(label, quads=False):
-            crm_rects.append(r)
+        for i, token in enumerate(texts):
+            # Normalize token (add colon if missing)
+            normalized = token if token.endswith(":") else f"{token}:"
+
+            # Skip if not a label to redact or if in keep list
+            if normalized not in labels_set or normalized in KEEP_LABELS:
+                continue
+
+            start_idx = i + 1
+            if start_idx >= len(line):
+                continue
+
+            # Find end index (next label or end of line)
+            end_idx = len(line)
+            for j in range(start_idx, len(texts)):
+                next_normalized = texts[j] if texts[j].endswith(":") else f"{texts[j]}:"
+                if next_normalized in labels_set or next_normalized in KEEP_LABELS:
+                    end_idx = j
+                    break
+
+            # Add redaction annotation
+            if end_idx > start_idx:
+                rect = rect_of_words(line, start_idx, end_idx)
+                page.add_redact_annot(rect, fill=(0, 0, 0))
+
+
+def redact_crm_and_upper_name(page: fitz.Page, lines: list[Line]) -> None:
+    """Redact CRM tokens and signature lines above them.
+    
+    Args:
+        page: PyMuPDF page object
+        lines: Pre-computed lines from words_by_line()
+    """
+    # Redact CRM tokens and everything to their right
+    for line in lines:
+        texts = [w[4] for w in line]
+        for i, token in enumerate(texts):
+            if token.strip() in CRM_TOKENS:
+                rect = rect_of_words(line, i, len(line))
+                page.add_redact_annot(rect, fill=(0, 0, 0))
+
+    # Find all CRM positions
+    crm_rects: list[fitz.Rect] = []
+    for crm_token in CRM_TOKENS:
+        crm_rects.extend(page.search_for(crm_token, quads=False))
+
     if not crm_rects:
         return
-    line_rects = []
-    for line in lines:
-        rect = rect_of_words(line, 0, len(line))
-        line_rects.append((rect, line))
-    for crm_r in crm_rects:
-        candidates = []
+
+    # Build line rectangles for searching
+    line_rects = [(rect_of_words(line, 0, len(line)), line) for line in lines]
+
+    # Redact signature line above each CRM (if not a label)
+    for crm_rect in crm_rects:
+        # Find lines above CRM within tolerance
+        candidates: list[tuple[float, fitz.Rect, Line]] = []
         for rect, line in line_rects:
-            if rect.y1 <= crm_r.y0 and (crm_r.y0 - rect.y1) <= PREVLINE_TOLERANCE:
-                if (rect.x1 > crm_r.x0 - 50) and (rect.x0 < crm_r.x1 + 50):
-                    candidates.append((crm_r.y0 - rect.y1, rect, line))
+            # Check if line is above CRM and within vertical/horizontal tolerance
+            if (
+                rect.y1 <= crm_rect.y0
+                and (crm_rect.y0 - rect.y1) <= PREVLINE_TOLERANCE
+                and rect.x1 > crm_rect.x0 - 50
+                and rect.x0 < crm_rect.x1 + 50
+            ):
+                distance = crm_rect.y0 - rect.y1
+                candidates.append((distance, rect, line))
+
         if candidates:
+            # Get closest line above CRM
             candidates.sort(key=lambda t: t[0])
             _, rect, line = candidates[0]
-            line_text = " ".join([w[4] for w in line])
+
+            # Only redact if not a label line (no colon)
+            line_text = " ".join(w[4] for w in line)
             if ":" not in line_text:
                 page.add_redact_annot(rect, fill=(0, 0, 0))
 
 
-def anonymize_text_on_page1(page1: fitz.Page):
-    """Apply text-based anonymization to page 1."""
-    # Include ALL labels (SAME_LINE + KEEP) for proper next-label detection
-    # The redaction logic will filter out KEEP_LABELS automatically
+def anonymize_text_on_page1(page1: fitz.Page, lines: list[Line]) -> None:
+    """Apply text-based anonymization to page 1.
+    
+    Args:
+        page1: PyMuPDF page object
+        lines: Pre-computed lines from words_by_line()
+    """
+    # Include ALL labels for proper next-label detection
+    # The redaction logic filters out KEEP_LABELS automatically
     labels_set = set(LABELS_SAME_LINE + KEEP_LABELS)
-    redact_line_values_after_label(page1, labels_set)
-    redact_crm_and_upper_name(page1)
+    redact_line_values_after_label(page1, lines, labels_set)
+    redact_crm_and_upper_name(page1, lines)
 
 
 def anonymize_single_page_pdf(doc: fitz.Document) -> bytes:
-    """Anonymize PDF with only 1 page - WORKING LOGIC FROM debug_redaction.py"""
+    """Anonymize PDF with only 1 page.
+    
+    Args:
+        doc: PyMuPDF document object
+        
+    Returns:
+        Anonymized PDF as bytes
+    """
     logger.info("Processing single-page PDF")
 
     page1 = doc[0]
     
-    # Apply the EXACT working logic from debug_redaction.py
+    # Extract lines once for performance
     lines = words_by_line(page1)
     labels_set = set(LABELS_SAME_LINE + KEEP_LABELS)
     
-    # Add text-based redactions using the working logic
-    for line_num, line in enumerate(lines):
-        texts = [w[4] for w in line]
-        
-        for i, tok in enumerate(texts):
-            tok_norm = tok if tok.endswith(":") else (tok + ":")
-            
-            if tok_norm in labels_set and tok_norm not in KEEP_LABELS:
-                start_idx = i + 1
-                if start_idx >= len(line):
-                    continue
-                
-                end_idx = len(line)
-                
-                # Look for next label
-                for j in range(start_idx, len(texts)):
-                    t_norm = texts[j] if texts[j].endswith(":") else (texts[j] + ":")
-                    if t_norm in labels_set or t_norm in KEEP_LABELS:
-                        end_idx = j
-                        break
-                
-                if end_idx > start_idx:
-                    # Calculate rectangle and add redaction
-                    rect = rect_of_words(line, start_idx, end_idx)
-                    page1.add_redact_annot(rect, fill=(0, 0, 0))
+    # Apply text-based redactions
+    redact_line_values_after_label(page1, lines, labels_set)
     
     # Apply CRM redactions
-    redact_crm_and_upper_name(page1)
+    redact_crm_and_upper_name(page1, lines)
 
     # Apply coordinate-based redaction for page 1
     for coords in PAGE1_REDACT_COORDS:
@@ -289,14 +302,24 @@ def anonymize_single_page_pdf(doc: fitz.Document) -> bytes:
 
 
 def anonymize_multi_page_pdf(doc: fitz.Document) -> bytes:
-    """Anonymize PDF with 2+ pages using full method (page1 + rasterized page2)."""
+    """Anonymize PDF with 2+ pages using full method (page1 + rasterized page2).
+    
+    Args:
+        doc: PyMuPDF document object
+        
+    Returns:
+        Anonymized PDF as bytes
+    """
     logger.info("Processing multi-page PDF", pages=len(doc))
 
     # Process Page 1: Text + Coordinate redaction (preserve vector)
     page1 = doc[0]
 
+    # Extract lines once for performance
+    lines_page1 = words_by_line(page1)
+
     # Apply text-based redaction
-    anonymize_text_on_page1(page1)
+    anonymize_text_on_page1(page1, lines_page1)
 
     # Apply coordinate-based redaction
     for coords in PAGE1_REDACT_COORDS:
