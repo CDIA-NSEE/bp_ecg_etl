@@ -1,9 +1,7 @@
-"""Entry point for BP-ECG ETL - Works for both ECS Fargate and AWS Lambda.
+"""Entry point for BP-ECG ETL - ECS Fargate.
 
 This module provides the main entry point for the BP-ECG ETL anonymization pipeline.
-It can run as:
-1. ECS Fargate task (long-running stream processing)
-2. AWS Lambda function (event-driven processing)
+Runs as ECS Fargate task with long-running stream processing.
 """
 
 import asyncio
@@ -269,22 +267,6 @@ async def async_main(prefix: str = "") -> dict[str, Any]:
     return result
 
 
-# Lambda handler (backward compatibility)
-def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
-    """AWS Lambda entry point.
-    
-    Args:
-        event: Lambda event (can contain 'prefix' key)
-        context: Lambda context
-        
-    Returns:
-        Processing result
-    """
-    prefix = event.get("prefix", "")
-    return asyncio.run(async_main(prefix))
-
-
-# ECS Fargate entry point
 def main() -> int:
     """ECS Fargate entry point - runs until all PDFs are processed.
     
