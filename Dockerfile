@@ -5,6 +5,7 @@ WORKDIR /build
 
 # Install dependencies
 COPY pyproject.toml uv.lock ./
+COPY bp_ecg_etl/ ./bp_ecg_etl/
 RUN pip install --no-cache-dir uv && \
     uv pip install --no-cache --python $(which python) --target /deps .
 

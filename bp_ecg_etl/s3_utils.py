@@ -1,6 +1,5 @@
 """S3 utilities for PDF processing with connection pooling."""
 
-
 import aioboto3
 import structlog
 from botocore.exceptions import ClientError

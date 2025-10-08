@@ -2,7 +2,6 @@
 name = "bp-ecg-etl"
 version = "0.1.0"
 description = "BP-ECG ETL - PDF Anonymization Pipeline for AWS Lambda"
-readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "aioboto3==15.0.0",
