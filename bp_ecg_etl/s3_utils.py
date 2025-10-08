@@ -3,7 +3,7 @@
 import aioboto3
 import structlog
 from botocore.exceptions import ClientError
-from ulid import ULID
+import ulid as ulid_lib
 
 from .config import AWS_REGION
 
@@ -124,7 +124,7 @@ def generate_output_key(input_key: str, prefix: str = "anonymized") -> str:
         >>> generate_output_key("path/to/file.pdf")
         'path/to/anonymized_01H2X..._pdf'
     """
-    ulid_str = str(ULID())
+    ulid_str = ulid_lib.new().str
 
     # Extract extension and directory
     if "." in input_key:
@@ -159,7 +159,7 @@ def generate_output_key_with_date(input_key: str, prefix: str = "anonymized") ->
     """
     from datetime import datetime
 
-    ulid_str = str(ULID())
+    ulid_str = ulid_lib.new().str
     now = datetime.utcnow()
 
     # Hive-style partitioning

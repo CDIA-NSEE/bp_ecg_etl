@@ -189,3 +189,4 @@ scripts/*.pyc
 htmlcov/
 .coverage
 coverage.xml
+.ruff_cache
