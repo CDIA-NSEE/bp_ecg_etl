@@ -22,21 +22,35 @@ PADDING = float(os.getenv("PADDING", "1.0"))
 # Text Labels
 # Labels que devem ter seus valores REMOVIDOS (anonimizados)
 LABELS_SAME_LINE = [
-    "Nome:", "CPF:", "RG:",
-    "Reg. Clínico:", "Registro Clínico:",
-    "Convênio:", "Convenio:",
-    "Responsável:", "Responsavel:",
+    "Nome:",
+    "CPF:",
+    "RG:",
+    "Reg. Clínico:",
+    "Registro Clínico:",
+    "Convênio:",
+    "Convenio:",
+    "Responsável:",
+    "Responsavel:",
     "Solicitante:",
-    "Médico Responsável:", "Medico Responsavel:", "Idade:",
-    "CRM:", "Médico:"
+    "Médico Responsável:",
+    "Medico Responsavel:",
+    "Idade:",
+    "CRM:",
+    "Médico:",
 ]
 
 # Labels que devem ter seus valores PRESERVADOS (não anonimizados)
 KEEP_LABELS = [
-    "Sexo:", "Data:", "Hora:",  # Labels reais do PDF
-    "Data de Nascimento:", 
-    "Frequência cardíaca:", "Intervalo PR:", "Duração QRS:",
-    "Intervalo QT/QTc:", "Eixo P-QRS-T:", "Interpretação:"
+    "Sexo:",
+    "Data:",
+    "Hora:",  # Labels reais do PDF
+    "Data de Nascimento:",
+    "Frequência cardíaca:",
+    "Intervalo PR:",
+    "Duração QRS:",
+    "Intervalo QT/QTc:",
+    "Eixo P-QRS-T:",
+    "Interpretação:",
 ]
 
 CRM_TOKENS = ["CRM", "CRM:", "crm"]
@@ -47,8 +61,8 @@ PAGE1_REDACT_COORDS = [
 ]
 
 PAGE2_REDACT_COORDS = [
-    (0.02, 0.10, 0.12, 0.17),   # Top left (Name/RG)
+    (0.02, 0.10, 0.12, 0.17),  # Top left (Name/RG)
     (0.13, 0.10, 0.18, 0.135),  # Top left (CPF)
-    (0.40, 0.94, 0.98, 0.97),   # Footer (signature/CRM bar)
-    (0.88, 0.85, 0.96, 0.92),   # Footer (right block)
+    (0.40, 0.94, 0.98, 0.97),  # Footer (signature/CRM bar)
+    (0.88, 0.85, 0.96, 0.92),  # Footer (right block)
 ]

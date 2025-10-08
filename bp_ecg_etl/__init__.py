@@ -16,37 +16,27 @@ Key Features:
 """
 
 # Core modules
-from . import config
+from . import config, constants, logging_config, models, pdf_anonymizer, s3_utils, validators
 from .config import *
-from . import constants
 from .constants import *
-from . import logging_config
 from .logging_config import setup_logging
-from . import models
-from .models import *
-from . import validators
-from .validators import *
-from . import s3_utils
-from .s3_utils import *
-from . import pdf_anonymizer
-from .pdf_anonymizer import anonymize_pdf
 
 # Main entry point
 from .main import main
+from .models import *
+from .pdf_anonymizer import anonymize_pdf
+from .s3_utils import *
+from .validators import *
 
 __version__ = "3.0.0-ecs"
-__author__ = "BP-ECG ETL Team"
 
 __all__ = [
-    # Core
     "config",
     "constants",
     "logging_config",
-    "models",
-    "validators",
-    # Processing
-    "s3_utils",
-    "pdf_anonymizer",
-    # Main
     "main",
+    "models",
+    "pdf_anonymizer",
+    "s3_utils",
+    "validators",
 ]

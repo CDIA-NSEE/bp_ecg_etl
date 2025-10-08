@@ -49,11 +49,11 @@ def to_abs_rect(page: fitz.Page, rel_rect: tuple[float, float, float, float]) ->
 
 def render_page_to_image(page: fitz.Page, dpi: int) -> Image.Image:
     """Render PDF page to PIL Image.
-    
+
     Args:
         page: PyMuPDF page object
         dpi: Resolution in dots per inch
-        
+
     Returns:
         PIL Image object
     """
@@ -64,9 +64,9 @@ def render_page_to_image(page: fitz.Page, dpi: int) -> Image.Image:
 
 def clear_pdf_metadata(doc: fitz.Document) -> None:
     """Clear all metadata from PDF document for privacy.
-    
+
     Removes standard metadata, XMP metadata, and document info.
-    
+
     Args:
         doc: PyMuPDF document object
     """
@@ -90,10 +90,10 @@ def clear_pdf_metadata(doc: fitz.Document) -> None:
 
 def words_by_line(page: fitz.Page) -> list[Line]:
     """Extract and group words by text lines with vertical proximity.
-    
+
     Args:
         page: PyMuPDF page object
-        
+
     Returns:
         List of lines, where each line is a list of word tuples
     """
@@ -102,9 +102,7 @@ def words_by_line(page: fitz.Page) -> list[Line]:
         return []
 
     # Filter empty words and sort by vertical position, then horizontal
-    valid_words: list[Word] = [
-        (w[0], w[1], w[2], w[3], w[4]) for w in words if w[4].strip()
-    ]
+    valid_words: list[Word] = [(w[0], w[1], w[2], w[3], w[4]) for w in words if w[4].strip()]
     valid_words.sort(key=lambda w: (round(w[1], 1), w[0]))
 
     # Group words into lines based on vertical proximity
@@ -131,12 +129,12 @@ def words_by_line(page: fitz.Page) -> list[Line]:
 
 def rect_of_words(words_line: list[Word], start_idx: int, end_idx: int) -> fitz.Rect:
     """Create bounding rectangle from word range with padding.
-    
+
     Args:
         words_line: Line containing words
         start_idx: Start index (inclusive)
         end_idx: End index (exclusive)
-        
+
     Returns:
         Rectangle encompassing the words with padding
     """
@@ -157,9 +155,11 @@ def rect_of_words(words_line: list[Word], start_idx: int, end_idx: int) -> fitz.
     )
 
 
-def redact_line_values_after_label(page: fitz.Page, lines: list[list[Word]], labels_set: set[str]) -> None:
+def redact_line_values_after_label(
+    page: fitz.Page, lines: list[list[Word]], labels_set: set[str]
+) -> None:
     """Redact values after specific labels on the same line.
-    
+
     Args:
         page: PyMuPDF page object
         lines: Pre-computed lines from words_by_line()
@@ -196,7 +196,7 @@ def redact_line_values_after_label(page: fitz.Page, lines: list[list[Word]], lab
 
 def redact_crm_and_upper_name(page: fitz.Page, lines: list[list[Word]]) -> None:
     """Redact CRM tokens and signature lines above them.
-    
+
     Args:
         page: PyMuPDF page object
         lines: Pre-computed lines from words_by_line()
@@ -248,7 +248,7 @@ def redact_crm_and_upper_name(page: fitz.Page, lines: list[list[Word]]) -> None:
 
 def anonymize_text_on_page1(page1: fitz.Page, lines: list[list[Word]]) -> None:
     """Apply text-based anonymization to page 1.
-    
+
     Args:
         page1: PyMuPDF page object
         lines: Pre-computed lines from words_by_line()
@@ -262,21 +262,21 @@ def anonymize_text_on_page1(page1: fitz.Page, lines: list[list[Word]]) -> None:
 
 def anonymize_single_page_pdf(doc: fitz.Document) -> bytes:
     """Anonymize PDF with only 1 page.
-    
+
     Args:
         doc: PyMuPDF document object
-        
+
     Returns:
         Anonymized PDF as bytes
     """
     logger.info("Processing single-page PDF")
 
     page1 = doc[0]
-    
+
     # Extract lines once for performance
     lines = words_by_line(page1)
     labels_set = set(LABELS_SAME_LINE + KEEP_LABELS)
-    
+
     # Apply text-based redactions
     redact_line_values_after_label(page1, lines, labels_set)
     redact_crm_and_upper_name(page1, lines)
@@ -301,10 +301,10 @@ def anonymize_single_page_pdf(doc: fitz.Document) -> bytes:
 
 def anonymize_multi_page_pdf(doc: fitz.Document) -> bytes:
     """Anonymize PDF with 2+ pages using full method (page1 + rasterized page2).
-    
+
     Args:
         doc: PyMuPDF document object
-        
+
     Returns:
         Anonymized PDF as bytes
     """
@@ -313,7 +313,7 @@ def anonymize_multi_page_pdf(doc: fitz.Document) -> bytes:
     # Process Page 1: Text + Coordinate redaction (preserve vector)
     page1 = doc[0]
     lines_page1 = words_by_line(page1)
-    
+
     # Apply text-based redaction
     anonymize_text_on_page1(page1, lines_page1)
 
@@ -328,12 +328,12 @@ def anonymize_multi_page_pdf(doc: fitz.Document) -> bytes:
 
     # Process Page 2: Rasterize and apply coordinate redaction
     page2 = doc[1]
-    
+
     # Get original page dimensions (in points)
     original_rect = page2.rect
     original_width = original_rect.width
     original_height = original_rect.height
-    
+
     # Render at high DPI to preserve quality
     img = render_page_to_image(page2, DPI_PAGE2_RENDER)
     draw = ImageDraw.Draw(img)
@@ -369,13 +369,13 @@ def anonymize_multi_page_pdf(doc: fitz.Document) -> bytes:
 
 def anonymize_pdf(pdf_content: bytes) -> bytes:
     """Main anonymization function with conditional logic based on page count.
-    
+
     Args:
         pdf_content: Raw PDF bytes
-        
+
     Returns:
         Anonymized PDF bytes
-        
+
     Raises:
         ValueError: If PDF is invalid or has 0 pages
         Exception: If anonymization fails
@@ -384,11 +384,11 @@ def anonymize_pdf(pdf_content: bytes) -> bytes:
     if not pdf_content or len(pdf_content) < 100:
         logger.error("Invalid PDF: content too small", size=len(pdf_content))
         raise ValueError(f"Invalid PDF: content too small ({len(pdf_content)} bytes)")
-    
-    if not pdf_content.startswith(b'%PDF'):
+
+    if not pdf_content.startswith(b"%PDF"):
         logger.error("Invalid PDF: missing PDF header")
         raise ValueError("Invalid PDF: missing PDF header")
-    
+
     logger.info("Starting PDF anonymization", pdf_size=len(pdf_content))
 
     # Open PDF
@@ -397,7 +397,7 @@ def anonymize_pdf(pdf_content: bytes) -> bytes:
     except Exception as e:
         logger.error("Failed to open PDF", error=str(e), error_type=type(e).__name__)
         raise ValueError(f"Failed to open PDF: {e}") from e
-    
+
     page_count = len(doc)
     logger.info("PDF page count detected", pages=page_count)
 
@@ -413,14 +413,14 @@ def anonymize_pdf(pdf_content: bytes) -> bytes:
             result = anonymize_multi_page_pdf(doc)
         else:
             raise ValueError("Invalid page count")
-        
+
         logger.info(
             "PDF anonymization completed",
             pages=page_count,
             original_size=len(pdf_content),
-            output_size=len(result)
+            output_size=len(result),
         )
-        
+
         return result
 
     except Exception as e:
@@ -429,7 +429,7 @@ def anonymize_pdf(pdf_content: bytes) -> bytes:
             error=str(e),
             error_type=type(e).__name__,
             pages=page_count,
-            exc_info=True
+            exc_info=True,
         )
         raise
 

@@ -62,7 +62,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"__init__.py" = ["F401"]  # Unused imports in __init__.py are OK
+"__init__.py" = ["F401", "F403"]  # Unused imports and star imports are OK in __init__.py
 
 [tool.ruff.lint.isort]
 known-first-party = ["bp_ecg_etl"]
@@ -134,13 +134,13 @@ addopts = "-v --strict-markers"
 
 # Taskipy tasks
 [tool.taskipy.tasks]
-format = "ruff format ."
-lint = "ruff check ."
-lint-fix = "ruff check --fix ."
-type-check = "mypy bp_ecg_etl/"
+format = "ruff format ./bp_ecg_etl"
+lint = "ruff check ./bp_ecg_etl"
+lint-fix = "ruff check --fix ./bp_ecg_etl"
+type-check = "mypy ./bp_ecg_etl"
 test = "pytest tests/unit/"
 test-all = "pytest"
-test-cov = "pytest --cov=bp_ecg_etl --cov-report=term-missing --cov-report=html"
+test-cov = "pytest --cov=./bp_ecg_etl --cov-report=term-missing --cov-report=html"
 test-integration = "pytest tests/integration/ -v"
 check-all = "task format && task lint && task type-check"
 pre-commit = "task format && task lint-fix && task type-check"
