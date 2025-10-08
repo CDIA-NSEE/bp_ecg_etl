@@ -17,15 +17,19 @@ Key Features:
 
 # Core modules
 from . import config
+from .config import *
 from . import constants
+from .constants import *
 from . import logging_config
+from .logging_config import setup_logging
 from . import models
+from .models import *
 from . import validators
-
-# Processing modules
+from .validators import *
 from . import s3_utils
+from .s3_utils import *
 from . import pdf_anonymizer
-from . import metrics
+from .pdf_anonymizer import anonymize_pdf
 
 # Main entry point
 from .main import main
@@ -43,7 +47,6 @@ __all__ = [
     # Processing
     "s3_utils",
     "pdf_anonymizer",
-    "metrics",
     # Main
     "main",
 ]
