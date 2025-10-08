@@ -96,17 +96,6 @@ module = [
 ]
 ignore_missing_imports = true
 
-# Pytest configuration
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-python_functions = ["test_*"]
-addopts = [
-    "-v",
-    "--strict-markers",
-    "--tb=short",
-]
-
 # Coverage configuration
 [tool.coverage.run]
 source = ["bp_ecg_etl"]
@@ -129,14 +118,30 @@ exclude_lines = [
     "@(abc\\.)?abstractmethod",
 ]
 
+# Pytest configuration
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "unit: Unit tests (fast)",
+    "integration: Integration tests (require external services)",
+    "slow: Slow tests (long running)",
+]
+addopts = "-v --strict-markers"
+
 # Taskipy tasks
 [tool.taskipy.tasks]
 format = "ruff format ."
 lint = "ruff check ."
 lint-fix = "ruff check --fix ."
 type-check = "mypy bp_ecg_etl/"
-test = "pytest"
-test-cov = "pytest --cov=bp_ecg_etl --cov-report=term-missing"
+test = "pytest tests/unit/"
+test-all = "pytest"
+test-cov = "pytest --cov=bp_ecg_etl --cov-report=term-missing --cov-report=html"
+test-integration = "pytest tests/integration/ -v"
 check-all = "task format && task lint && task type-check"
 pre-commit = "task format && task lint-fix && task type-check"
-test-pdf = "python test_pdf.py"
+test-pdf = "python scripts/test_pdf.py"

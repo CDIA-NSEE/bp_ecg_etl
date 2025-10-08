@@ -100,38 +100,80 @@ aws logs tail /ecs/bp-ecg-processor --follow
 
 📖 **Detailed comparison**: See [ECS_VS_LAMBDA.md](./ECS_VS_LAMBDA.md)
 
-## Testing
+## Local Testing
 
-Upload a PDF to trigger processing:
+### Quick Start
+
+```bash
+# 1. Start LocalStack with S3
+./scripts/start_localstack.sh
+
+# 2. Test pipeline with a PDF
+python scripts/test_local.py test_data/exemplo1.pdf
+
+# 3. Stop LocalStack
+docker-compose down
+```
+
+📖 **Complete guide**: See [README_LOCAL_TESTING.md](./README_LOCAL_TESTING.md)
+
+### Manual Testing
 
 ```bash
 export AWS_ACCESS_KEY_ID=test
 export AWS_SECRET_ACCESS_KEY=test
 export AWS_DEFAULT_REGION=us-east-1
 
-# Upload PDF (triggers Lambda automatically)
+# Upload PDF to LocalStack
 aws s3 cp example.pdf s3://raw-pdfs/ --endpoint-url http://localhost:4566
 
 # Check anonymized output
 aws s3 ls s3://anon-pdfs/ --endpoint-url http://localhost:4566
 ```
 
+### Automated Tests
+
+```bash
+# Unit tests (fast)
+pytest tests/unit/ -v
+
+# Integration tests
+pytest tests/integration/ -v
+
+# All tests with coverage
+pytest --cov=bp_ecg_etl --cov-report=html
+```
+
 ## Project Structure
 
 ```
 bp_ecg_etl/
-├── bp_ecg_etl/
+├── .github/
+│   └── workflows/
+│       └── ci.yml             # GitHub Actions CI/CD
+├── bp_ecg_etl/               # Main package
 │   ├── __init__.py
-│   ├── config.py              # Environment-based configuration
-│   ├── lambda_main.py         # Lambda handler
-│   ├── logging_config.py      # Structured logging setup
-│   ├── main.py                # Entry point
-│   ├── pdf_anonymizer.py      # Core anonymization logic
-│   └── s3_utils.py            # S3 download/upload
-├── deploy_simple.sh           # LocalStack deployment script
-├── docker-compose.yml         # LocalStack configuration
-├── pyproject.toml             # Project dependencies
-└── requirements-lambda.txt    # Lambda-optimized dependencies
+│   ├── config.py             # Environment configuration
+│   ├── constants.py          # Anonymization constants
+│   ├── logging_config.py     # Structured logging
+│   ├── main.py               # ECS entry point
+│   ├── metrics.py            # CloudWatch metrics
+│   ├── models.py             # Domain models
+│   ├── pdf_anonymizer.py     # Core anonymization
+│   ├── s3_utils.py           # S3 utilities
+│   └── validators.py         # Input validation
+├── scripts/                  # Utility scripts
+│   ├── deploy_ecs.sh         # ECS deployment
+│   ├── start_localstack.sh   # Start local environment
+│   ├── test_local.py         # Local pipeline test
+│   └── test_pdf.py           # Simple PDF test
+├── tests/                    # Test suite
+│   ├── integration/          # Integration tests
+│   └── unit/                 # Unit tests
+├── docker-compose.yml        # LocalStack + S3
+├── Dockerfile                # Container image
+├── pyproject.toml            # Project config
+└── README_LOCAL_TESTING.md   # Local testing guide
 ```
 
 ## Configuration

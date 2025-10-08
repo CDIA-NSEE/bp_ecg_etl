@@ -5,11 +5,8 @@ import pytest
 
 from bp_ecg_etl.pdf_anonymizer import (
     anonymize_pdf,
-    anonymize_single_page_pdf,
-    anonymize_multi_page_pdf,
     words_by_line,
     clamp01,
-    to_abs_rect,
 )
 
 

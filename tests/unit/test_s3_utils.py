@@ -1,6 +1,5 @@
 """Tests for S3 utilities."""
 
-import pytest
 from datetime import datetime
 
 from bp_ecg_etl.s3_utils import generate_output_key_with_date

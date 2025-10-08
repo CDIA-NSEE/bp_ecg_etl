@@ -177,3 +177,15 @@ localstack/
 test_data
 cover
 test_output
+
+# Scripts cache
+scripts/__pycache__/
+scripts/*.pyc
+
+# macOS
+.DS_Store
+
+# Coverage reports
+htmlcov/
+.coverage
+coverage.xml

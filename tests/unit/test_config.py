@@ -1,8 +1,5 @@
 """Tests for configuration."""
 
-import os
-import pytest
-
 from bp_ecg_etl.config import (
     INPUT_BUCKET,
     OUTPUT_BUCKET,
