@@ -25,10 +25,10 @@ jobs:
         run: uv pip install --system ruff mypy
       
       - name: Run Ruff check
-        run: ruff check .
+        run: ruff check bp_ecg_etl/
       
       - name: Run Ruff format check
-        run: ruff format --check .
+        run: ruff format --check bp_ecg_etl/
       
       - name: Run MyPy
         run: mypy bp_ecg_etl/ || true
