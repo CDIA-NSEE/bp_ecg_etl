@@ -1,6 +1,7 @@
 """Simple S3 utilities for PDF processing."""
 
-import gzip
+import io
+import zipfile
 
 import aioboto3
 import structlog
@@ -32,11 +33,16 @@ async def download_pdf(bucket: str, key: str) -> bytes:
 
 
 async def upload_pdf(bucket: str, key: str, content: bytes, metadata: dict | None = None) -> None:
-    """Upload PDF to S3 with gzip compression (saves as .pdf.gz)."""
+    """Upload PDF to S3 with zip compression (saves as .pdf.zip)."""
     original_size = len(content)
+    # Comprimir com zip
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as zip_file:
+        # Extrair nome base do arquivo (remover path se houver)
+        pdf_name = key.split('/')[-1].replace('.pdf.zip', '.pdf')
+        zip_file.writestr(pdf_name, content)
     
-    # Comprimir com gzip
-    compressed_content = gzip.compress(content, compresslevel=6)
+    compressed_content = zip_buffer.getvalue()
     compressed_size = len(compressed_content)
     compression_ratio = (1 - compressed_size / original_size) * 100
     
@@ -56,8 +62,7 @@ async def upload_pdf(bucket: str, key: str, content: bytes, metadata: dict | Non
                 "Bucket": bucket,
                 "Key": key,
                 "Body": compressed_content,
-                "ContentType": "application/gzip",
-                "ContentEncoding": "gzip",
+                "ContentType": "application/zip",
             }
 
             if metadata:
@@ -80,12 +85,12 @@ async def upload_pdf(bucket: str, key: str, content: bytes, metadata: dict | Non
 
 
 def generate_output_key(input_key: str, prefix: str = "anonymized") -> str:
-    """Generate output key using ULID for unique filename (.pdf.gz)."""
+    """Generate output key using ULID for unique filename (.pdf.zip)."""
     # Generate a new ULID for unique filename
     ulid = str(new())
 
-    # Sempre gera .pdf.gz (comprimido)
-    filename = f"{prefix}_{ulid}.pdf.gz"
+    # Sempre gera .pdf.zip (comprimido)
+    filename = f"{prefix}_{ulid}.pdf.zip"
 
     # Preserve directory structure if present
     if "/" in input_key:
