@@ -1,236 +1,67 @@
-# BP-ECG ETL - Sistema de Anonimização de PDFs
+# BP-ECG ETL
 
-🏥 **Sistema de anonimização automática de PDFs de ECG para o projeto BP-ECG**
+Processamento paralelo de PDFs de ECG com anonimização.
 
-Este sistema processa PDFs de exames de ECG removendo informações pessoais sensíveis (nome, CPF, RG, CRM) enquanto preserva dados clínicos essenciais (sexo, data/hora do exame, resultados médicos).
+## Como Usar
 
-## ✨ Funcionalidades
+### 1. Configurar
 
-- 🔒 **Anonimização Seletiva**: Remove apenas dados pessoais, preserva informações clínicas
-- 📄 **Processamento Inteligente**: Lógica diferenciada para PDFs de 1 página vs 2+ páginas
-- 🏷️ **Nomes Únicos**: Geração de nomes únicos usando ULID para evitar conflitos
-- ☁️ **Integração S3**: Processamento automático via buckets S3
-- ⚡ **AWS Lambda**: Deploy como função serverless
-- 📊 **Logging Estruturado**: Monitoramento completo com structlog
-- 🐳 **LocalStack**: Teste local completo
+Edite `template.yaml` (linhas 17-18):
 
-## 🚀 Deploy Rápido
+```yaml
+INPUT_BUCKET: "seu-bucket-entrada"
+OUTPUT_BUCKET: "seu-bucket-saida"
+```
 
-### Pré-requisitos
+### 2. Deploy (cria State Machine + Lambda)
 
 ```bash
-# Instalar dependências
-sudo apt install python3-pip python3-venv
-pip install uv
-
-# Instalar AWS CLI
-curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-unzip awscliv2.zip && sudo ./aws/install
-
-# Iniciar LocalStack
-docker-compose up -d
+sam build
+sam deploy --guided
 ```
 
-### Deploy da Função Lambda
+Isto cria automaticamente:
+- Lambda Processor (10GB RAM)
+- Step Functions State Machine (MaxConcurrency: 500)
+- IAM Roles necessárias
+
+### 3. Upload PDFs
 
 ```bash
-# Deploy simples e rápido
-./deploy_simple.sh
-
-# OU deploy completo com configurações avançadas
-python deploy_to_localstack.py
+aws s3 cp pdfs/ s3://seu-bucket-entrada/ --recursive
 ```
 
-## 🧪 Como Testar
-
-### 1. Configurar Credenciais LocalStack
+### 4. Executar
 
 ```bash
-export AWS_ACCESS_KEY_ID=test
-export AWS_SECRET_ACCESS_KEY=test
-export AWS_DEFAULT_REGION=us-east-1
+python scripts/prepare_and_deploy.py --bucket seu-bucket-entrada
 ```
 
-### 2. Fazer Upload de PDF
-
-```bash
-# Enviar PDF para processamento
-aws s3 cp "exemplo.pdf" s3://raw-pdfs/ --endpoint-url http://localhost:4566
-```
-
-### 3. Verificar Resultado
-
-```bash
-# Listar PDFs anonimizados
-aws s3 ls s3://anon-pdfs/ --endpoint-url http://localhost:4566
-
-# Baixar PDF anonimizado
-aws s3 cp s3://anon-pdfs/anonymized_XXXXX.pdf . --endpoint-url http://localhost:4566
-```
-
-### 4. Teste Automatizado
-
-```bash
-# Executar script de teste
-python test_function.py
-```
-
-## 📁 Estrutura do Projeto
+## Arquitetura
 
 ```
-bp_ecg_etl/
-├── 📦 bp_ecg_etl/                 # Código principal
-│   ├── __init__.py
-│   ├── main.py                    # Ponto de entrada
-│   ├── lambda_main.py             # Handler Lambda
-│   ├── config.py                  # Configurações
-│   ├── pdf_anonymizer.py          # Lógica de anonimização
-│   └── s3_utils.py               # Utilitários S3
-├── 🚀 deploy_simple.sh            # Script de deploy rápido
-├── 🐍 deploy_to_localstack.py     # Script de deploy completo
-├── 🧪 test_function.py            # Script de teste
-├── 📋 requirements.txt            # Dependências completas
-├── 📦 requirements-lambda.txt     # Dependências otimizadas
-├── 🐳 docker-compose.yml          # LocalStack
-└── 📖 README.md                   # Esta documentação
+Script Local → Step Functions → 500 Lambdas → S3
 ```
 
-## ⚙️ Configuração
+- **Script**: Lista PDFs e divide em lotes de 1000
+- **Step Functions**: Controla 500 Lambdas simultâneas
+- **Lambda**: Processa 1000 PDFs com 15 workers
 
-### Variáveis de Ambiente
+## Processamento
 
-| Variável | Descrição | Padrão |
-|----------|-----------|--------|
-| `INPUT_BUCKET` | Bucket S3 de entrada | `raw-pdfs` |
-| `OUTPUT_BUCKET` | Bucket S3 de saída | `anon-pdfs` |
-| `AWS_REGION` | Região AWS | `us-east-1` |
-| `DPI_PAGE2_RENDER` | DPI para página 2 | `150` |
-| `LINE_TOLERANCE` | Tolerância de linha | `3` |
-| `PREVLINE_TOLERANCE` | Tolerância linha anterior | `10` |
-| `PADDING` | Padding para redação | `2` |
+Cada PDF:
+1. Download do S3
+2. Anonimiza página 1 (remove CPF, nome, etc)
+3. Extrai página 2 como PNG (300 DPI)
+4. Mescla e comprime
+5. Upload para S3 de saída
 
-### Configuração Lambda
+## Performance
 
-- **Runtime**: Python 3.9
-- **Memory**: 1024MB
-- **Timeout**: 300s (5 minutos)
-- **Handler**: `bp_ecg_etl.lambda_main.lambda_handler`
+- 1.5M arquivos em ~7-8 horas
+- 500 Lambdas simultâneas (10GB RAM cada)
+- Custo: ~$210 para 1.5M PDFs
 
-## 🔧 Desenvolvimento
+## Documentação
 
-### Setup do Ambiente
-
-```bash
-# Criar ambiente virtual
-python3 -m venv .venv
-source .venv/bin/activate
-
-# Instalar dependências
-uv pip install -r requirements.txt
-```
-
-### Teste Local
-
-```bash
-# Teste de função específica
-python -c "from bp_ecg_etl.main import process_pdf_local; process_pdf_local('input.pdf', 'output.pdf')"
-```
-
-## 📊 Monitoramento
-
-### Logs do CloudWatch (LocalStack Pro)
-
-```bash
-# Visualizar logs em tempo real
-aws logs tail /aws/lambda/bp-ecg-etl-anonymizer --endpoint-url http://localhost:4566 --follow
-```
-
-### Métricas de Processamento
-
-A função Lambda retorna métricas detalhadas:
-
-```json
-{
-  "statusCode": 200,
-  "body": {
-    "message": "PDF processing completed",
-    "summary": {
-      "total_files": 1,
-      "successful": 1,
-      "failed": 0
-    },
-    "results": [{
-      "status": "success",
-      "input_bucket": "raw-pdfs",
-      "input_key": "exemplo.pdf",
-      "output_bucket": "anon-pdfs",
-      "output_key": "anonymized_01K2H0W0JN0AZCBKTYSE3P5N1B.pdf",
-      "processing_time": 0.246,
-      "input_size": 188185,
-      "output_size": 217058
-    }]
-  }
-}
-```
-
-## 🛡️ Segurança e Privacidade
-
-### Dados Removidos
-- ✅ Nome do paciente
-- ✅ CPF
-- ✅ RG
-- ✅ CRM do médico
-- ✅ Nome do médico
-
-### Dados Preservados
-- ✅ Sexo do paciente
-- ✅ Data do exame
-- ✅ Hora do exame
-- ✅ Resultados e interpretações médicas
-- ✅ Gráficos e ondas do ECG
-
-## 🐛 Solução de Problemas
-
-### Erro: "ResourceConflictException"
-```bash
-# Aguardar conclusão da atualização anterior
-sleep 15 && ./deploy_simple.sh
-```
-
-### Erro: "No such file or directory"
-```bash
-# Verificar se LocalStack está rodando
-docker-compose ps
-
-# Reiniciar se necessário
-docker-compose restart
-```
-
-### Logs não aparecem
-```bash
-# LocalStack Community não suporta CloudWatch Logs
-# Use LocalStack Pro ou monitore via métricas da função
-```
-
-## 📈 Performance
-
-- **PDF 1 página**: ~0.2s
-- **PDF 2+ páginas**: ~0.5s
-- **Throughput**: ~200 PDFs/minuto
-- **Memory usage**: ~200MB por PDF
-
-## 🤝 Contribuição
-
-1. Fork o projeto
-2. Crie uma branch (`git checkout -b feature/nova-funcionalidade`)
-3. Commit suas mudanças (`git commit -am 'Adiciona nova funcionalidade'`)
-4. Push para a branch (`git push origin feature/nova-funcionalidade`)
-5. Abra um Pull Request
-
-## 📄 Licença
-
-Este projeto é licenciado sob a licença MIT - veja o arquivo LICENSE para detalhes.
-
----
-
-**🏥 BP-ECG ETL** - Anonimização segura e eficiente de PDFs médicos
+Ver `FLUXO.md` para detalhes completos.

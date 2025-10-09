@@ -14,7 +14,7 @@ def setup_logging():
             structlog.processors.TimeStamper(fmt="iso"),
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
-            structlog.processors.JSONRenderer()
+            structlog.processors.JSONRenderer(),
         ],
         context_class=dict,
         logger_factory=structlog.stdlib.LoggerFactory(),
@@ -22,10 +22,6 @@ def setup_logging():
         cache_logger_on_first_use=True,
     )
 
-
-def get_logger(name: str = __name__):
-    """Get a structlog logger."""
-    return structlog.get_logger(name)
 
 
 # Initialize logging

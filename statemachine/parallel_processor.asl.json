@@ -1,0 +1,45 @@
+{
+  "Comment": "Parallel PDF processing with controlled concurrency",
+  "StartAt": "ProcessBatchesInParallel",
+  "States": {
+    "ProcessBatchesInParallel": {
+      "Type": "Map",
+      "ItemsPath": "$.batches",
+      "MaxConcurrency": 500,
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "INLINE"
+        },
+        "StartAt": "InvokeLambdaProcessor",
+        "States": {
+          "InvokeLambdaProcessor": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": {
+              "FunctionName": "${LambdaFunctionArn}",
+              "Payload": {
+                "keys.$": "$.keys"
+              }
+            },
+            "Retry": [
+              {
+                "ErrorEquals": [
+                  "Lambda.ServiceException",
+                  "Lambda.AWSLambdaException",
+                  "Lambda.SdkClientException",
+                  "Lambda.TooManyRequestsException"
+                ],
+                "IntervalSeconds": 2,
+                "MaxAttempts": 3,
+                "BackoffRate": 2
+              }
+            ],
+            "End": true
+          }
+        }
+      },
+      "ResultPath": "$.results",
+      "End": true
+    }
+  }
+}

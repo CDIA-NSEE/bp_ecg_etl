@@ -1,25 +1,23 @@
 [project]
 name = "bp-ecg-etl"
-version = "0.1.0"
-description = "Add your description here"
+version = "3.0.0"
+description = "High-performance AWS Lambda for batch ECG PDF processing with metadata control and S3 prefix support"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "aioboto3>=15.0.0",
-    "boto3>=1.38.27",
-    "pillow>=11.3.0",
-    "polars>=1.31.0",
-    "pymupdf>=1.24.0",
-    "tenacity>=8.2.0",
-    "structlog>=23.2.0",
-    "aws-lambda-typing>=2.20.0",
-    "wheel>=0.45.1",
-    "ulid-py>=1.1.0",
-    "numpy>=1.24.0",
-    "opencv-python>=4.8.0",
-    "pydantic>=2.11.7",
-    "pydantic-settings>=2.10.1",
-    "rapidocr-onnxruntime>=1.4.4",
+    "pillow==11.3.0",
+    "pymupdf",
+    "aioboto3==15.0.0",
+    "aiobotocore==2.23.0",
+    "boto3==1.38.27",
+    "botocore==1.38.27",
+    "structlog==25.4.0",
+    "ulid-py==1.1.0",
+    "pydantic==2.11.7",
+    "pydantic-core==2.33.2",
+    "typing-extensions==4.14.1",
+    "annotated-types==0.7.0",
+    "python-dotenv==1.1.1",
 ]
 
 [project.optional-dependencies]
@@ -27,20 +25,157 @@ dev = [
     "taskipy>=1.12.2",
     "pytest>=8.3.2",
     "pytest-cov>=5.0.0",
+    "pytest-asyncio>=0.23.0",
     "mypy>=1.10.1",
     "ruff>=0.5.5",
-    "types-aiobotocore-s3>=2.24.0",
-    "mypy-boto3-lambda>=1.40.0"
+    "types-pillow>=10.2.0",
+    "aws-sam-cli>=1.120.0",
 ]
 
+# ==========================================
+# RUFF Configuration
+# ==========================================
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+exclude = [
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "__pycache__",
+    "*.pyc",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "SIM", # flake8-simplify
+    "PTH", # flake8-use-pathlib
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "B008",  # do not perform function calls in argument defaults
+    "PTH123", # use pathlib instead of os.path (S3 keys are not paths)
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+# ==========================================
+# MYPY Configuration
+# ==========================================
+[tool.mypy]
+python_version = "3.12"
+strict = false
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_any_unimported = false
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "fitz",
+    "aioboto3",
+    "aiobotocore",
+    "structlog",
+    "ulid",
+]
+ignore_missing_imports = true
+
+# ==========================================
+# PYTEST Configuration
+# ==========================================
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--showlocals",
+    "--tb=short",
+]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "slow: Slow tests",
+]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["bp_ecg_etl"]
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+    "*/.*",
+]
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+]
+
+# ==========================================
+# TASKIPY Scripts
+# ==========================================
 [tool.taskipy.tasks]
-run = "python -c 'from bp_ecg_etl.main import lambda_handler; print(lambda_handler({}, None))'"
-test = "pytest tests/"
-coverage = "pytest --cov=bp_ecg_etl tests/"
+# Testing
+test = "pytest tests/ -v"
+test-unit = "pytest tests/unit/ -v"
+test-integration = "pytest tests/integration/ -v"
+coverage = "pytest --cov=bp_ecg_etl --cov-report=html --cov-report=term tests/"
+
+# Linting & Formatting
 lint = "ruff check bp_ecg_etl/ tests/"
 format = "ruff format bp_ecg_etl/ tests/"
-check = "mypy bp_ecg_etl/"
-pre-commit = "taskipy format && taskipy lint && taskipy check"
-sam-build = "sam build --template deployment/template.yaml"
-sam-invoke = "sam local invoke BpEcgEtlFunction --event deployment/events/test-event.json --template deployment/template.yaml"
-sam-deploy = "sam deploy --guided --template deployment/template.yaml"
+format-check = "ruff format --check bp_ecg_etl/ tests/"
+type-check = "mypy bp_ecg_etl/"
+
+# Combined checks
+check-all = "task format-check && task lint && task type-check"
+fix-all = "task format && ruff check --fix bp_ecg_etl/ tests/"
+
+# Local testing
+run-local = "python scripts/test_local.py"
+test-pdf = "python scripts/test_local.py"
+
+# Pre-commit
+pre-commit = "task format && task lint && task type-check && task test"
+
+# Deployment
+deploy-local = "./scripts/deploy.sh"
+
+# Processamento paralelo simplificado
+start-processing = "python scripts/prepare_and_deploy.py"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

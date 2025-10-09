@@ -1,18 +1,46 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: BP-ECG ETL Lambda Function
+Description: BP-ECG ETL - Processamento paralelo simplificado
 
 Resources:
-  BpEcgEtlFunction:
+  # Lambda para processar lotes de PDFs
+  BpEcgProcessorFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: bp_ecg_etl/
-      Handler: main.lambda_handler
+      Handler: lambda_handler.lambda_handler
       Runtime: python3.12
       Timeout: 900
-      MemorySize: 1024
+      MemorySize: 10240
       Environment:
         Variables:
           INPUT_BUCKET: "bp-ecg-input"
           OUTPUT_BUCKET: "bp-ecg-output"
           AWS_REGION: "us-east-1"
+          DPI_PAGE2_RENDER: "300"
+      Policies:
+        - S3ReadPolicy:
+            BucketName: "bp-ecg-input"
+        - S3CrudPolicy:
+            BucketName: "bp-ecg-output"
+
+  # Step Function para paralelização (500 Lambdas simultâneas)
+  BpEcgStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      DefinitionUri: statemachine/parallel_processor.asl.json
+      DefinitionSubstitutions:
+        LambdaFunctionArn: !GetAtt BpEcgProcessorFunction.Arn
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref BpEcgProcessorFunction
+      Type: STANDARD
+
+Outputs:
+  ProcessorFunctionArn:
+    Description: "Lambda ARN"
+    Value: !GetAtt BpEcgProcessorFunction.Arn
+
+  StateMachineArn:
+    Description: "Step Function ARN"
+    Value: !Ref BpEcgStateMachine
