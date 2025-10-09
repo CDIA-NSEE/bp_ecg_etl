@@ -1,0 +1,50 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: BP-ECG ETL - LocalStack deployment
+
+Parameters:
+  InputBucket:
+    Type: String
+    Default: bp-ecg-input
+  OutputBucket:
+    Type: String
+    Default: bp-ecg-output
+
+Resources:
+  BpEcgProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: bp-ecg-anonymizer
+      CodeUri: .
+      Handler: bp_ecg_etl.s3_handler.lambda_handler
+      Runtime: python3.12
+      Timeout: 300
+      MemorySize: 1024
+      Environment:
+        Variables:
+          INPUT_BUCKET: !Ref InputBucket
+          OUTPUT_BUCKET: !Ref OutputBucket
+          AWS_REGION: us-east-1
+          DPI_PAGE2_RENDER: "450"
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref InputBucket
+        - S3CrudPolicy:
+            BucketName: !Ref OutputBucket
+
+  BpEcgStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: bp-ecg-processor
+      DefinitionUri: statemachine/simple_processor.asl.json
+      DefinitionSubstitutions:
+        LambdaFunctionArn: !GetAtt BpEcgProcessorFunction.Arn
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref BpEcgProcessorFunction
+
+Outputs:
+  LambdaArn:
+    Value: !GetAtt BpEcgProcessorFunction.Arn
+  StateMachineArn:
+    Value: !Ref BpEcgStateMachine

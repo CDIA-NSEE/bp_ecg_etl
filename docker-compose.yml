@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  localstack:
+    image: localstack/localstack:latest
+    ports:
+      - "4566:4566"  # LocalStack gateway (principal)
+      - "4510-4559:4510-4559"  # Portas de serviços internos
+    environment:
+      - SERVICES=s3,lambda,stepfunctions,iam,logs,cloudformation,events
+      - DEBUG=1
+      - LAMBDA_EXECUTOR=docker
+      - LAMBDA_RUNTIME_ENVIRONMENT_TIMEOUT=900
+      - AWS_DEFAULT_REGION=us-east-1
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - localstack_data:/var/lib/localstack
+    networks:
+      - localstack-net
+
+volumes:
+  localstack_data:
+
+networks:
+  localstack-net:

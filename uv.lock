@@ -212,6 +212,15 @@ wheels = [
 ]
 
 [[package]]
+name = "aws-sam-cli-local"
+version = "1.70.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aws-sam-cli" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b7/47/9536972b9f3feec868678af0a8611c982fb7eeb3e3d29797a7439385d7d6/aws-sam-cli-local-1.70.0.tar.gz", hash = "sha256:574b9d182ad551520fbd2bd030227baa57340aa93ad63d0d7c9afacfa59d5fa4", size = 8722 }
+
+[[package]]
 name = "aws-sam-translator"
 version = "1.100.0"
 source = { registry = "https://pypi.org/simple" }
@@ -224,6 +233,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/0b/63/2f0ef6d6612a16e8eb293d4724d9cdd07b713677d66999dfc93e084ebc87/aws_sam_translator-1.100.0.tar.gz", hash = "sha256:be4fb7eef864c971eb305af09de8e4e0bfe98a4eca122a00c069f6346aa00410", size = 343314 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/92/af/eaeeb7f1f868a2f9578523a45de8685c1d7dfb81ae94b59cc4b3b5213e70/aws_sam_translator-1.100.0-py3-none-any.whl", hash = "sha256:643d24ab4c9c422fab19208528fdb97bbe3399735fdcc189a9af91f873b4f9e4", size = 401514 },
+]
+
+[[package]]
+name = "awscli-local"
+version = "0.22.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "localstack-client" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/7a/71/591a30da6819c96deca2286f145d5982e73b11e7f657e8cbfc5e003ca73f/awscli_local-0.22.2.tar.gz", hash = "sha256:07c532c372753bf5f15426451dc91d6eec9de8779748049329a9a882bdac8a0b", size = 11695 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/13/80/6cb86812f8418b0464fc3418e78826d8fc99342848fdb82e7f576add1c1f/awscli_local-0.22.2-py3-none-any.whl", hash = "sha256:1901ebef343ba8cbde06f9f6406b5415ef53e93296718c2c31c9d49b0b09bd9d", size = 12280 },
 ]
 
 [[package]]
@@ -367,6 +388,8 @@ dependencies = [
 [package.optional-dependencies]
 dev = [
     { name = "aws-sam-cli" },
+    { name = "aws-sam-cli-local" },
+    { name = "awscli-local" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -382,6 +405,8 @@ requires-dist = [
     { name = "aiobotocore", specifier = "==2.23.0" },
     { name = "annotated-types", specifier = "==0.7.0" },
     { name = "aws-sam-cli", marker = "extra == 'dev'", specifier = ">=1.120.0" },
+    { name = "aws-sam-cli-local", marker = "extra == 'dev'", specifier = ">=1.70.0" },
+    { name = "awscli-local", marker = "extra == 'dev'", specifier = ">=0.22" },
     { name = "boto3", specifier = "==1.38.27" },
     { name = "botocore", specifier = "==1.38.27" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10.1" },
@@ -885,6 +910,15 @@ sdist = { url = "https://files.pythonhosted.org/packages/19/74/a633ee74eb36c44aa
 wheels = [
     { url = "https://files.pythonhosted.org/packages/41/45/1a4ed80516f02155c51f51e8cedb3c1902296743db0bbc66608a0db2814f/jsonschema_specifications-2025.9.1-py3-none-any.whl", hash = "sha256:98802fee3a11ee76ecaca44429fda8a41bff98b00a0f2838151b113f210cc6fe", size = 18437 },
 ]
+
+[[package]]
+name = "localstack-client"
+version = "2.10"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "boto3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/22/11/4f10b87d634edd616d8063dd0ed1193be747e524e28801f826d72828b98f/localstack_client-2.10.tar.gz", hash = "sha256:732a07e23fffd6a581af2714bbe006ad6f884ac4f8ac955211a8a63321cdc409", size = 11302 }
 
 [[package]]
 name = "markdown-it-py"

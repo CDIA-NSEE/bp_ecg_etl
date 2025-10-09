@@ -21,8 +21,8 @@ async def process_single_pdf(bucket: str, key: str, dpi: int = DPI_PAGE2_RENDER)
         # Download
         pdf_bytes = await download_pdf(bucket, key)
 
-        # Processar
-        processed_bytes = await process_complete_pdf(pdf_bytes, dpi)
+        # Processar (CPU-bound, roda em thread separada)
+        processed_bytes = await asyncio.to_thread(process_complete_pdf, pdf_bytes, dpi)
 
         # Upload
         output_key = generate_output_key(key)

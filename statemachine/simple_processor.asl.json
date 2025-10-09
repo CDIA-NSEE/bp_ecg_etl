@@ -1,0 +1,38 @@
+{
+  "Comment": "BP-ECG Simple Processor for LocalStack Testing",
+  "StartAt": "ProcessPDF",
+  "States": {
+    "ProcessPDF": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "bp-ecg-anonymizer",
+        "Payload": {
+          "Records": [
+            {
+              "s3": {
+                "bucket": {
+                  "name.$": "$.bucket"
+                },
+                "object": {
+                  "key.$": "$.key"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "End": true
+    }
+  }
+}

@@ -177,3 +177,4 @@ localstack/
 test_data
 cover
 test_output
+test*
