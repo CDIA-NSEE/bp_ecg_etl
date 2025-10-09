@@ -63,13 +63,14 @@ def extract_page2_as_png(pdf_content: bytes, dpi: int = 300) -> bytes:
         # Get the target page
         page = doc[page_index]
 
-        # Render page to pixmap with specified DPI
+        # STEP 1: Rasterize page FIRST (this automatically handles rotation)
+        # PyMuPDF applies rotation during rendering, so output is in visual orientation
         zoom = dpi / 72.0  # 72 DPI is PDF standard
         matrix = fitz.Matrix(zoom, zoom)
         pixmap = page.get_pixmap(matrix=matrix, alpha=False)
 
         # Convert PyMuPDF pixmap to PIL Image
-        img = Image.frombytes("RGB", [pixmap.width, pixmap.height], pixmap.samples)
+        img = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
 
         logger.debug(
             "ECG page rendered to image",
@@ -79,40 +80,44 @@ def extract_page2_as_png(pdf_content: bytes, dpi: int = 300) -> bytes:
             mode=img.mode,
         )
 
-        # Apply black bars for sensitive data redaction
+        # STEP 2: Apply black bars on rasterized image
+        # Coordinates are in visual orientation (origin: top-left)
+        # This permanently destroys sensitive data
         if redact_coords:
+            from PIL import ImageDraw
             draw = ImageDraw.Draw(img)
 
             for idx, coords in enumerate(redact_coords):
-                # Normalize coordinates to 0-1 range
-                x0, y0, x1, y1 = coords
+                x0_val, y0_val, x1_val, y1_val = coords
 
-                # Check if coordinates are already normalized (0-1 range)
+                # Auto-detect if coordinates are relative (0-1) or absolute (>1)
                 if all(0 <= c <= 1 for c in coords):
-                    # Convert relative coordinates to absolute pixels
-                    x0_px = int(x0 * img.width)
-                    y0_px = int(y0 * img.height)
-                    x1_px = int(x1 * img.width)
-                    y1_px = int(y1 * img.height)
+                    # Relative coordinates - convert to absolute pixels
+                    x0 = int(x0_val * img.width)
+                    y0 = int(y0_val * img.height)
+                    x1 = int(x1_val * img.width)
+                    y1 = int(y1_val * img.height)
                 else:
-                    # Use absolute pixel coordinates directly
-                    x0_px, y0_px, x1_px, y1_px = int(x0), int(y0), int(x1), int(y1)
+                    # Absolute coordinates - use directly
+                    x0, y0, x1, y1 = int(x0_val), int(y0_val), int(x1_val), int(y1_val)
 
-                # Ensure proper rectangle (x0 < x1, y0 < y1)
-                if x0_px > x1_px:
-                    x0_px, x1_px = x1_px, x0_px
-                if y0_px > y1_px:
-                    y0_px, y1_px = y1_px, y0_px
-
-                # Draw black rectangle (vectorial bar)
-                draw.rectangle([x0_px, y0_px, x1_px, y1_px], fill=(0, 0, 0))
+                # Draw black rectangle on image
+                draw.rectangle([x0, y0, x1, y1], fill=(0, 0, 0))
 
                 logger.debug(
                     "Applied redaction bar",
                     page_label=page_label,
                     bar_index=idx,
-                    coords=(x0_px, y0_px, x1_px, y1_px),
+                    coords=(x0, y0, x1, y1),
                 )
+
+        logger.debug(
+            "ECG page rasterized with redactions",
+            page_label=page_label,
+            width=img.width,
+            height=img.height,
+            mode=img.mode,
+        )
 
         # Save as PNG with maximum quality (lossless)
         output = io.BytesIO()

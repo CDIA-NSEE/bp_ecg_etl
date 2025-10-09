@@ -8,7 +8,9 @@ OUTPUT_BUCKET = os.getenv("OUTPUT_BUCKET", "test-output-bucket")
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 
 # Processing Configuration
-DPI_PAGE2_RENDER = int(os.getenv("DPI_PAGE2_RENDER", "220"))
+# DPI for page 2 rasterization (higher = better quality, larger file)
+# 220 = good (web), 300 = high (print), 450 = very high (medical archive)
+DPI_PAGE2_RENDER = int(os.getenv("DPI_PAGE2_RENDER", "450"))
 IMAGE_REDACT_MODE = int(os.getenv("IMAGE_REDACT_MODE", "2"))  # 1 = PDF_REDACT_IMAGE_NONE
 
 # Anonymization Rules
@@ -54,18 +56,14 @@ CRM_TOKENS = ["CRM", "CRM:", "crm"]
 
 # Coordinate-based redaction areas (relative coordinates 0-1)
 PAGE1_REDACT_COORDS = [
-    (0.35, 0.90, 0.65, 0.95),  # Footer signature/CRM area
-    (50, 50, 200, 80),  # Example coordinates - adjust as needed
-    (300, 100, 500, 130),
+    (0.35, 0.87, 0.65, 0.98),  # Footer signature/CRM area
 ]
 
 PAGE2_REDACT_COORDS = [
-    (0.02, 0.10, 0.12, 0.17),  # Top left (Name/RG...)
+    (0.02, 0.10, 0.12, 0.17),   # Top left (Name/RG...)
     (0.13, 0.10, 0.18, 0.135),  # Top left (CPF...)
-    (0.40, 0.94, 0.98, 0.97),  # Footer (signature/CRM bar)
-    (0.88, 0.85, 0.96, 0.92),  # Footer (right block)
-    (100, 200, 400, 250),  # Example coordinates - adjust as needed
-    (50, 300, 300, 350),
+    (0.40, 0.94, 0.98, 0.97),   # Footer (signature/CRM bar)
+    (0.88, 0.85, 0.96, 0.92),   # Footer (right block)
 ]
 
 # Image processing

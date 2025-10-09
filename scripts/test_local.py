@@ -14,7 +14,11 @@ def main():
         sys.exit(1)
 
     input_path = Path(sys.argv[1])
-    output_path = Path(sys.argv[2]) if len(sys.argv) > 2 else input_path.with_name(f"{input_path.stem}_anonimizado.pdf")
+    output_path = (
+        Path(sys.argv[2])
+        if len(sys.argv) > 2
+        else input_path.with_name(f"{input_path.stem}_anonimizado.pdf")
+    )
 
     if not input_path.exists():
         print(f"Erro: {input_path} não encontrado")
