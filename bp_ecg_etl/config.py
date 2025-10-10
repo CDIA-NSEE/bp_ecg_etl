@@ -10,7 +10,7 @@ AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 # Processing Configuration
 # DPI for page 2 rasterization (higher = better quality, larger file)
 # 220 = good (web), 300 = high (print), 450 = very high (medical archive)
-DPI_PAGE2_RENDER = int(os.getenv("DPI_PAGE2_RENDER", "450"))
+DPI_PAGE2_RENDER = int(os.getenv("DPI_PAGE2_RENDER", "600"))
 IMAGE_REDACT_MODE = int(os.getenv("IMAGE_REDACT_MODE", "2"))  # 1 = PDF_REDACT_IMAGE_NONE
 
 # Anonymization Rules

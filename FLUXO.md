@@ -8,34 +8,39 @@ Script Local → Step Functions → 500 Lambdas → S3 Output
 
 ## Componentes
 
-### 1. Script Local (`prepare_and_deploy.py`)
+### 1. Script de Execução (`execute_parallel.sh`)
 - Lista PDFs do S3 de entrada
-- Divide em lotes de 200 arquivos
+- Divide em lotes (default: 10 PDFs/batch)
 - Cria payload JSON com todos os lotes
-- Inicia Step Function
+- Inicia Step Function paralela
 
 ### 2. Step Functions
+- **Simples** (`bp-ecg-processor`): Processa 1 PDF por vez (LocalStack)
+- **Paralela** (`bp-ecg-parallel-processor`): MaxConcurrency 500 (Produção)
 - Recebe array com todos os lotes
-- MaxConcurrency: 500
 - Invoca Lambda para cada lote
 - Garante máximo de 500 execuções simultâneas
 
-### 3. Lambda Processor (`lambda_handler.py`)
-- Recebe 1 lote (200 PDFs)
+### 3. Lambda Processor (`s3_handler.py`)
+- Recebe evento S3 (1 ou mais PDFs)
 - Processa com 15 workers assíncronos
 - Para cada PDF:
   - Download do S3
   - Anonimiza página 1
   - Extrai página 2 como PNG
-  - Mescla e comprime
-  - Upload para S3 de saída
+  - Mescla e comprime (ZIP)
+  - Upload para S3 de saída (.pdf.zip)
 
 ## Fluxo Passo a Passo
 
 ### Execução do Script
 
 ```bash
-python scripts/prepare_and_deploy.py --bucket bp-ecg-input
+# Produção (AWS)
+bash scripts/production/execute_parallel.sh
+
+# LocalStack (testes)
+bash scripts/local/execute_statemachine.sh test_data_local/exemplo.pdf
 ```
 
 **O que acontece:**
@@ -132,12 +137,15 @@ Para cada PDF:
 5. Merge
    - Página 1 anonimizada + Página 2 (PNG)
    ↓
-6. Compressão
-   - Deflate (sem perda de qualidade)
+6. Compressão ZIP
+   - Formato: .pdf.zip
+   - ZIP_DEFLATED (compress level 6)
+   - PDF interno mantido com nome original
    ↓
 7. Upload S3 (OUTPUT_BUCKET)
-   - Nome: anonymized_ULID.pdf
-   - Metadados completos
+   - Nome: anonymized_ULID.pdf.zip
+   - ContentType: application/zip
+   - Metadados: tamanhos original/comprimido
 ```
 
 ## Controle de Concorrência
@@ -192,35 +200,58 @@ Hora 3-4:     Todas concluídas
 ## Comandos
 
 ```bash
+# === LOCALSTACK (Testes) ===
+# 1. Iniciar
+docker-compose up -d
+
+# 2. Deploy
+bash scripts/local/deploy_localstack.sh
+
+# 3. Testar
+bash scripts/local/execute_statemachine.sh test_data_local/exemplo.pdf
+
+# === PRODUÇÃO (AWS) ===
 # 1. Deploy
-sam build && sam deploy
+bash scripts/production/deploy_production.sh
 
 # 2. Upload PDFs
-aws s3 cp pdfs/ s3://bp-ecg-input/ --recursive
+aws s3 cp pdfs/ s3://bp-ecg-input-prod/ --recursive
 
-# 3. Executar
-python scripts/prepare_and_deploy.py --bucket bp-ecg-input
+# 3. Executar em paralelo
+bash scripts/production/execute_parallel.sh
 
 # 4. Monitorar
-# Console AWS: https://console.aws.amazon.com/states/
+# Console: https://console.aws.amazon.com/states/
+aws stepfunctions list-executions --state-machine-arn <ARN>
 ```
 
 ## Arquivos Principais
 
 ```
 bp_ecg_etl/
-├── lambda_handler.py          # Lambda simples (50 linhas)
-├── batch_processor.py         # Lógica de processamento
-├── pdf_processor.py           # Pipeline PDF
-├── pdf_anonymizer.py          # Anonimização
-└── s3_utils.py               # Upload/download
+├── s3_handler.py             # Handler S3 events (Lambda entry point)
+├── batch_processor.py         # Lógica de processamento em lote
+├── pdf_processor.py           # Pipeline completo de PDF
+├── pdf_anonymizer.py          # Anonimização de texto
+├── ecg_extractor.py           # Extração página 2 como PNG
+├── s3_utils.py                # Upload/download com compressão ZIP
+└── config.py                  # Configurações centralizadas
 
 scripts/
-└── prepare_and_deploy.py     # Script de execução (130 linhas)
+├── local/
+│   ├── deploy_localstack.sh   # Deploy LocalStack
+│   ├── execute_statemachine.sh # Testar 1 PDF
+│   └── README.md
+└── production/
+    ├── deploy_production.sh   # Deploy AWS
+    ├── execute_parallel.sh     # Processar em massa
+    └── README.md
 
-template.yaml                  # Configuração AWS (47 linhas)
+template.yaml                  # Produção (AWS)
+template.localstack.yaml       # LocalStack (testes)
 statemachine/
-└── parallel_processor.asl.json # Step Function
+├── simple_processor.asl.json    # State Machine simples (1 PDF)
+└── parallel_processor.asl.json  # State Machine paralela (massa)
 ```
 
 **Total: ~400 linhas de código principal**
