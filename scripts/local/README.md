@@ -5,11 +5,11 @@ Scripts para testes e desenvolvimento local usando LocalStack.
 ## Pré-requisitos
 
 ```bash
-# Instalar dependências
-pip install -e ".[dev]"
-
-# Iniciar LocalStack
+# 1. Iniciar LocalStack
 docker-compose up -d
+
+# 2. Instalar ferramentas AWS (se não tiver)
+pip install awscli-local aws-sam-cli
 ```
 
 ## Scripts Disponíveis

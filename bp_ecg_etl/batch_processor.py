@@ -1,4 +1,4 @@
-"""Processador de lotes de PDFs."""
+"""Processador de lotes de PDFs com redação vetorial."""
 
 import asyncio
 import time
@@ -6,7 +6,7 @@ from typing import Any
 
 import structlog
 
-from .config import OUTPUT_BUCKET, DPI_PAGE2_RENDER
+from .config import DPI_PAGE2_RENDER, OUTPUT_BUCKET
 from .pdf_processor import process_complete_pdf
 from .s3_utils import download_pdf, generate_output_key, upload_pdf
 
@@ -14,7 +14,7 @@ logger = structlog.get_logger(__name__)
 
 
 async def process_single_pdf(bucket: str, key: str, dpi: int = DPI_PAGE2_RENDER) -> dict[str, Any]:
-    """Processa um PDF: download, anonimização, upload."""
+    """Processa um PDF: download, anonimização vetorial, upload."""
     start = time.time()
 
     try:
@@ -34,11 +34,12 @@ async def process_single_pdf(bucket: str, key: str, dpi: int = DPI_PAGE2_RENDER)
                 "original-key": key,
                 "original-bucket": bucket,
                 "anonymized": "true",
+                "method": "vectorial",
             },
         )
 
         elapsed = time.time() - start
-        logger.info("PDF processado", key=key, time=round(elapsed, 2))
+        logger.info("PDF processado (vectorial)", key=key, time=round(elapsed, 2))
 
         return {"status": "success", "key": key, "time": elapsed}
 
