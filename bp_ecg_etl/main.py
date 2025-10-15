@@ -22,10 +22,9 @@ from .logging_config import setup_logging
 from .pdf_anonymizer import anonymize_pdf
 from .s3_utils import (
     download_pdf,
-    generate_output_key_with_date,
-    is_already_processed,
+    generate_output_key,
     list_bucket_stream,
-    upload_pdf_compressed,
+    upload_pdf,
 )
 
 # Initialize logging
@@ -57,11 +56,6 @@ async def producer_task(
 
     async for pdf_key in list_bucket_stream(input_bucket, prefix):
         checked += 1
-
-        # Check if already processed
-        if await is_already_processed(pdf_key, output_bucket):
-            logger.debug("PDF already processed, skipping", key=pdf_key)
-            continue
 
         # Enqueue for processing
         await queue.put(pdf_key)
@@ -128,8 +122,8 @@ async def consumer_task(
             # Anonymize
             anonymized_content = anonymize_pdf(pdf_content)
 
-            # Generate Hive-partitioned output key
-            output_key = generate_output_key_with_date(pdf_key)
+            # Generate date-partitioned output key (/YYYY/mm/anonymized_ULID.pdf.zip)
+            output_key = generate_output_key(pdf_key)
 
             # Metadata
             metadata = {
@@ -140,8 +134,8 @@ async def consumer_task(
                 "worker-id": str(worker_id),
             }
 
-            # Upload with compression
-            original_size, compressed_size = await upload_pdf_compressed(
+            # Upload with ZIP compression
+            original_size, compressed_size = await upload_pdf(
                 output_bucket, output_key, anonymized_content, metadata
             )
 

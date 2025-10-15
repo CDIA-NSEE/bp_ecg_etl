@@ -4,11 +4,9 @@ import io
 
 import fitz  # PyMuPDF
 import structlog
-from PIL import Image, ImageDraw
 
 from .config import (
     CRM_TOKENS,
-    DPI_PAGE2_RENDER,
     KEEP_LABELS,
     LABELS_SAME_LINE,
     LINE_TOLERANCE,
@@ -45,21 +43,6 @@ def to_abs_rect(page: fitz.Page, rel_rect: tuple[float, float, float, float]) ->
         b.x0 + b.width * x1r,
         b.y0 + b.height * y1r,
     )
-
-
-def render_page_to_image(page: fitz.Page, dpi: int) -> Image.Image:
-    """Render PDF page to PIL Image.
-
-    Args:
-        page: PyMuPDF page object
-        dpi: Resolution in dots per inch
-
-    Returns:
-        PIL Image object
-    """
-    zoom = dpi / 72.0
-    pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
-    return Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
 
 
 def clear_pdf_metadata(doc: fitz.Document) -> None:
@@ -261,7 +244,7 @@ def anonymize_text_on_page1(page1: fitz.Page, lines: list[list[Word]]) -> None:
 
 
 def anonymize_single_page_pdf(doc: fitz.Document) -> bytes:
-    """Anonymize PDF with only 1 page.
+    """Anonymize PDF with only 1 page using VECTORIAL redaction.
 
     Args:
         doc: PyMuPDF document object
@@ -269,7 +252,7 @@ def anonymize_single_page_pdf(doc: fitz.Document) -> bytes:
     Returns:
         Anonymized PDF as bytes
     """
-    logger.info("Processing single-page PDF")
+    logger.info("Processing single-page PDF (vectorial)")
 
     page1 = doc[0]
 
@@ -285,22 +268,33 @@ def anonymize_single_page_pdf(doc: fitz.Document) -> bytes:
     for coords in PAGE1_REDACT_COORDS:
         page1.add_redact_annot(to_abs_rect(page1, coords), fill=(0, 0, 0))
 
-    # Apply all redactions (preserve vector format)
+    # For single-page PDFs, also apply PAGE2 coordinates (ECG is on page 1)
+    for coords in PAGE2_REDACT_COORDS:
+        page1.add_redact_annot(to_abs_rect(page1, coords), fill=(0, 0, 0))
+
+    # Apply all redactions vectorially (preserves vector format)
     page1.apply_redactions()
 
     # Clear PDF metadata for privacy
     clear_pdf_metadata(doc)
 
-    # Save and return the modified PDF
+    # Save with maximum security flags
     output_buffer = io.BytesIO()
-    doc.save(output_buffer)
+    doc.save(
+        output_buffer,
+        garbage=4,      # Maximum garbage collection
+        clean=True,     # Clean internal structure
+        deflate=True,   # Compress streams
+        pretty=False,   # No formatting
+        linear=False,   # No linearization
+    )
 
-    logger.info("Single-page PDF anonymization completed")
+    logger.info("Single-page PDF vectorial anonymization completed")
     return output_buffer.getvalue()
 
 
 def anonymize_multi_page_pdf(doc: fitz.Document) -> bytes:
-    """Anonymize PDF with 2+ pages using full method (page1 + rasterized page2).
+    """Anonymize PDF with 2+ pages using VECTORIAL redaction.
 
     Args:
         doc: PyMuPDF document object
@@ -308,62 +302,45 @@ def anonymize_multi_page_pdf(doc: fitz.Document) -> bytes:
     Returns:
         Anonymized PDF as bytes
     """
-    logger.info("Processing multi-page PDF", pages=len(doc))
+    logger.info("Processing multi-page PDF (vectorial)", pages=len(doc))
 
-    # Process Page 1: Text + Coordinate redaction (preserve vector)
+    # Process Page 1: Text + Coordinate redaction (vectorial)
     page1 = doc[0]
     lines_page1 = words_by_line(page1)
 
     # Apply text-based redaction
     anonymize_text_on_page1(page1, lines_page1)
 
-    # Apply coordinate-based redaction
+    # Apply coordinate-based redaction for page 1
     for coords in PAGE1_REDACT_COORDS:
         page1.add_redact_annot(to_abs_rect(page1, coords), fill=(0, 0, 0))
     page1.apply_redactions()
 
-    # Create output PDF with page 1
-    output_doc = fitz.open()
-    output_doc.insert_pdf(doc, from_page=0, to_page=0)
-
-    # Process Page 2: Rasterize and apply coordinate redaction
+    # Process Page 2: Vectorial redaction (no rasterization)
     page2 = doc[1]
 
-    # Get original page dimensions (in points)
-    original_rect = page2.rect
-    original_width = original_rect.width
-    original_height = original_rect.height
-
-    # Render at high DPI to preserve quality
-    img = render_page_to_image(page2, DPI_PAGE2_RENDER)
-    draw = ImageDraw.Draw(img)
-
-    # Apply coordinate redaction on the image
+    # Apply coordinate-based redaction for page 2
     for coords in PAGE2_REDACT_COORDS:
-        x1 = int(coords[0] * img.width)
-        y1 = int(coords[1] * img.height)
-        x2 = int(coords[2] * img.width)
-        y2 = int(coords[3] * img.height)
-        draw.rectangle([x1, y1, x2, y2], fill=(0, 0, 0))
+        page2.add_redact_annot(to_abs_rect(page2, coords), fill=(0, 0, 0))
 
-    # Convert image back to PDF page maintaining exact original dimensions
-    img_buffer = io.BytesIO()
-    img.save(img_buffer, format="PNG", optimize=False)  # No optimization to preserve quality
-    img_buffer.seek(0)
-
-    # Create new page with EXACT original dimensions (no distortion)
-    new_page = output_doc.new_page(width=original_width, height=original_height)
-    new_page.insert_image(original_rect, stream=img_buffer.getvalue(), keep_proportion=True)
+    # Apply vectorial redactions on page 2
+    page2.apply_redactions()
 
     # Clear PDF metadata for privacy
-    clear_pdf_metadata(output_doc)
+    clear_pdf_metadata(doc)
 
-    # Save final PDF
+    # Save final PDF with maximum security flags
     output_buffer = io.BytesIO()
-    output_doc.save(output_buffer)
-    output_doc.close()
+    doc.save(
+        output_buffer,
+        garbage=4,      # Maximum garbage collection
+        clean=True,     # Clean internal structure
+        deflate=True,   # Compress streams
+        pretty=False,   # No formatting
+        linear=False,   # No linearization
+    )
 
-    logger.info("Multi-page PDF anonymization completed")
+    logger.info("Multi-page PDF vectorial anonymization completed")
     return output_buffer.getvalue()
 
 

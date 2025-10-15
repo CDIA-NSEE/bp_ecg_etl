@@ -4,10 +4,6 @@ set -e
 # BP-ECG ETL - ECS Fargate Deployment Script
 # This script builds, pushes, and deploys the ECS Fargate task
 
-echo "╔════════════════════════════════════════════════════════════════╗"
-echo "║   BP-ECG ETL - ECS Fargate Deployment                         ║"
-echo "╚════════════════════════════════════════════════════════════════╝"
-echo ""
 
 # Configuration
 AWS_REGION="${AWS_REGION:-us-east-1}"

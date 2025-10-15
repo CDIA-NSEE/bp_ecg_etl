@@ -66,19 +66,45 @@ async def upload_pdf(
     key: str,
     content: bytes,
     metadata: dict[str, str] | None = None,
-) -> None:
-    """Upload PDF to S3.
+) -> tuple[int, int]:
+    """Upload PDF to S3 with ZIP compression.
 
     Args:
         bucket: S3 bucket name
-        key: Object key
+        key: Object key (will be saved as .pdf.zip)
         content: PDF file content
         metadata: Optional metadata dictionary
+
+    Returns:
+        Tuple of (original_size, compressed_size)
 
     Raises:
         ClientError: If S3 operation fails
     """
-    logger.info("Uploading PDF to S3", bucket=bucket, key=key, size_bytes=len(content))
+    import io
+    import zipfile
+
+    original_size = len(content)
+
+    # Compress with ZIP
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as zip_file:
+        # Extract base filename and add to zip
+        pdf_name = key.split('/')[-1].replace('.pdf.zip', '.pdf')
+        zip_file.writestr(pdf_name, content)
+
+    compressed_content = zip_buffer.getvalue()
+    compressed_size = len(compressed_content)
+    compression_ratio = (1 - compressed_size / original_size) * 100
+
+    logger.info(
+        "Uploading compressed PDF to S3",
+        bucket=bucket,
+        key=key,
+        original_size=original_size,
+        compressed_size=compressed_size,
+        compression_ratio=f"{compression_ratio:.1f}%",
+    )
 
     session = get_session()
     async with session.client("s3", region_name=AWS_REGION) as s3:
@@ -86,16 +112,25 @@ async def upload_pdf(
             upload_params: dict = {
                 "Bucket": bucket,
                 "Key": key,
-                "Body": content,
-                "ContentType": "application/pdf",
+                "Body": compressed_content,
+                "ContentType": "application/zip",
             }
 
-            if metadata:
-                upload_params["Metadata"] = metadata
+            if metadata is None:
+                metadata = {}
+
+            # Add compression info to metadata
+            metadata.update({
+                "original-size": str(original_size),
+                "compressed-size": str(compressed_size),
+                "compression-ratio": f"{compression_ratio:.1f}%",
+            })
+
+            upload_params["Metadata"] = metadata
 
             await s3.put_object(**upload_params)
 
-            logger.info("PDF uploaded successfully", bucket=bucket, key=key)
+            logger.info("Compressed PDF uploaded successfully", bucket=bucket, key=key)
 
         except ClientError as e:
             error_code = e.response.get("Error", {}).get("Code", "Unknown")
@@ -107,70 +142,39 @@ async def upload_pdf(
             )
             raise
 
+    return original_size, compressed_size
+
 
 def generate_output_key(input_key: str, prefix: str = "anonymized") -> str:
-    """Generate output key using ULID for unique filename.
+    """Generate output key using ULID with /YYYY/mm structure and ZIP compression.
 
     Args:
         input_key: Input S3 key
         prefix: Prefix for output filename
 
     Returns:
-        Generated S3 key with ULID
+        Generated S3 key with date structure: /YYYY/mm/anonymized_ULID.pdf.zip
 
     Examples:
         >>> generate_output_key("file.pdf")
-        'anonymized_01H2X..._pdf'
+        '2025/01/anonymized_01H2X....pdf.zip'
         >>> generate_output_key("path/to/file.pdf")
-        'path/to/anonymized_01H2X..._pdf'
-    """
-    ulid_str = ulid_lib.new().str
-
-    # Extract extension and directory
-    if "." in input_key:
-        _, ext = input_key.rsplit(".", 1)
-    else:
-        ext = "pdf"
-
-    # Build filename
-    filename = f"{prefix}_{ulid_str}.{ext}"
-
-    # Preserve directory structure
-    if "/" in input_key:
-        directory = input_key.rsplit("/", 1)[0]
-        return f"{directory}/{filename}"
-
-    return filename
-
-
-def generate_output_key_with_date(input_key: str, prefix: str = "anonymized") -> str:
-    """Generate output key with Hive-style partitioning and compression.
-
-    Args:
-        input_key: Input S3 key
-        prefix: Prefix for output filename
-
-    Returns:
-        Hive-partitioned key: year=YYYY/month=MM/day=DD/anonymized_ULID.pdf.gz
-
-    Examples:
-        >>> generate_output_key_with_date("file.pdf")
-        'year=2025/month=01/day=15/anonymized_01HXX123.pdf.gz'
+        '2025/01/anonymized_01H2X....pdf.zip'
     """
     from datetime import datetime
 
     ulid_str = ulid_lib.new().str
     now = datetime.utcnow()
 
-    # Hive-style partitioning
-    year = f"year={now.year}"
-    month = f"month={now.month:02d}"
-    day = f"day={now.day:02d}"
+    # Date-based path structure: /YYYY/mm
+    year = now.year
+    month = f"{now.month:02d}"
+    date_path = f"{year}/{month}"
 
     # Filename with compression extension
-    filename = f"{prefix}_{ulid_str}.pdf.gz"
+    filename = f"{prefix}_{ulid_str}.pdf.zip"
 
-    return f"{year}/{month}/{day}/{filename}"
+    return f"{date_path}/{filename}"
 
 
 async def list_bucket_stream(bucket: str, prefix: str = ""):
@@ -194,110 +198,3 @@ async def list_bucket_stream(bucket: str, prefix: str = ""):
                     yield key
 
 
-async def is_already_processed(input_key: str, output_bucket: str) -> bool:
-    """Check if PDF was already processed (quick S3 head check).
-
-    Args:
-        input_key: Input PDF key
-        output_bucket: Output bucket to check
-
-    Returns:
-        True if already processed, False otherwise
-    """
-    import os
-    from datetime import datetime, timedelta
-
-    base_name = os.path.basename(input_key).replace(".pdf", "").replace(".PDF", "")
-
-    session = get_session()
-    async with session.client("s3", region_name=AWS_REGION) as s3:
-        # Search recent partitions (last 30 days) for optimization
-        for days_ago in range(30):
-            date = datetime.utcnow() - timedelta(days=days_ago)
-            partition_prefix = f"year={date.year}/month={date.month:02d}/day={date.day:02d}/"
-
-            try:
-                response = await s3.list_objects_v2(
-                    Bucket=output_bucket, Prefix=partition_prefix, MaxKeys=1000
-                )
-
-                for obj in response.get("Contents", []):
-                    if base_name in obj["Key"] and obj["Key"].endswith(".pdf.gz"):
-                        logger.debug(
-                            "PDF already processed", input_key=input_key, existing_output=obj["Key"]
-                        )
-                        return True
-            except ClientError:
-                continue
-
-        return False
-
-
-async def upload_pdf_compressed(
-    bucket: str,
-    key: str,
-    content: bytes,
-    metadata: dict[str, str] | None = None,
-) -> tuple[int, int]:
-    """Upload PDF with GZIP compression.
-
-    Args:
-        bucket: S3 bucket name
-        key: Object key (should end with .pdf.gz)
-        content: PDF content to compress and upload
-        metadata: Optional metadata
-
-    Returns:
-        Tuple of (original_size, compressed_size)
-    """
-    import gzip
-
-    original_size = len(content)
-    compressed_content = gzip.compress(content, compresslevel=9)
-    compressed_size = len(compressed_content)
-
-    if metadata is None:
-        metadata = {}
-
-    metadata.update(
-        {
-            "original-size": str(original_size),
-            "compressed-size": str(compressed_size),
-            "compression-ratio": f"{(1 - compressed_size / original_size) * 100:.2f}%",
-        }
-    )
-
-    logger.info(
-        "Uploading compressed PDF",
-        bucket=bucket,
-        key=key,
-        original_size=original_size,
-        compressed_size=compressed_size,
-        ratio=metadata["compression-ratio"],
-    )
-
-    session = get_session()
-    async with session.client("s3", region_name=AWS_REGION) as s3:
-        try:
-            await s3.put_object(
-                Bucket=bucket,
-                Key=key,
-                Body=compressed_content,
-                ContentType="application/pdf",
-                ContentEncoding="gzip",
-                Metadata=metadata,
-            )
-
-            logger.info("Compressed PDF uploaded successfully", bucket=bucket, key=key)
-
-        except ClientError as e:
-            error_code = e.response.get("Error", {}).get("Code", "Unknown")
-            logger.error(
-                "Failed to upload compressed PDF",
-                bucket=bucket,
-                key=key,
-                error_code=error_code,
-            )
-            raise
-
-    return original_size, compressed_size

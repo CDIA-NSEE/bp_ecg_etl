@@ -190,3 +190,6 @@ htmlcov/
 .coverage
 coverage.xml
 .ruff_cache
+test_data
+test_output
+test_data_local

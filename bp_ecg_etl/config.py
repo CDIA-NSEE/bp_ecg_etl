@@ -8,8 +8,9 @@ OUTPUT_BUCKET = os.getenv("OUTPUT_BUCKET", "anon-pdfs")
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 
 # Concurrency Configuration (ECS/Lambda)
-MAX_WORKERS = int(os.getenv("MAX_WORKERS", "50"))  # 50 for ECS, 10-20 for Lambda
-QUEUE_SIZE = int(os.getenv("QUEUE_SIZE", "200"))  # Buffer size for asyncio.Queue
+# Optimized for 8 vCPUs + 16GB RAM: 100 workers = ~8-9 hours for 1.5M PDFs
+MAX_WORKERS = int(os.getenv("MAX_WORKERS", "100"))  # 100 for ECS (8 vCPUs), 10-20 for Lambda
+QUEUE_SIZE = int(os.getenv("QUEUE_SIZE", "400"))  # Buffer size for asyncio.Queue
 
 # Processing Configuration
 DPI_PAGE2_RENDER = int(os.getenv("DPI_PAGE2_RENDER", "150"))
@@ -57,7 +58,7 @@ CRM_TOKENS = ["CRM", "CRM:", "crm"]
 
 # Coordinate-based redaction areas (relative coordinates 0-1)
 PAGE1_REDACT_COORDS = [
-    (0.35, 0.90, 0.65, 0.95),  # Footer signature/CRM area
+    (0.35, 0.87, 0.65, 0.98),  # Footer signature/CRM area
 ]
 
 PAGE2_REDACT_COORDS = [
