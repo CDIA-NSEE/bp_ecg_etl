@@ -34,6 +34,7 @@ WORKDIR /app
 
 # Install only runtime dependencies (no build tools)
 RUN apk add --no-cache \
+    libstdc++ \
     mupdf-dev \
     freetype \
     harfbuzz \

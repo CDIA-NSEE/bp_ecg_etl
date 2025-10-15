@@ -193,3 +193,9 @@ coverage.xml
 test_data
 test_output
 test_data_local
+
+# Temporary PDF files
+*_output*.pdf
+debug*.pdf
+test_*.pdf
+!test_local.sh

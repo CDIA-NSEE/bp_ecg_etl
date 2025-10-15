@@ -17,6 +17,7 @@ dependencies = [
     "typing-extensions==4.14.1",
     "annotated-types==0.7.0",
     "python-dotenv==1.1.1",
+    "awscli-local>=0.22.2",
 ]
 
 [project.optional-dependencies]
@@ -27,6 +28,7 @@ dev = [
     "mypy>=1.10.0",
     "taskipy>=1.12.2",
     "types-aiobotocore>=2.13.0",
+    "awscli-local>=0.22",
 ]
 
 [build-system]

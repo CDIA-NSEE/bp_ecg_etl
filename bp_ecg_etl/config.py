@@ -13,7 +13,9 @@ MAX_WORKERS = int(os.getenv("MAX_WORKERS", "100"))  # 100 for ECS (8 vCPUs), 10-
 QUEUE_SIZE = int(os.getenv("QUEUE_SIZE", "400"))  # Buffer size for asyncio.Queue
 
 # Processing Configuration
-DPI_PAGE2_RENDER = int(os.getenv("DPI_PAGE2_RENDER", "150"))
+# DPI for page 2 rasterization (higher = better quality, larger file)
+# 220 = good (web), 300 = high (print), 450 = very high (medical archive)
+DPI_PAGE2_RENDER = int(os.getenv("DPI_PAGE2_RENDER", "600"))
 
 # Anonymization Rules
 LINE_TOLERANCE = float(os.getenv("LINE_TOLERANCE", "1.0"))
@@ -62,8 +64,8 @@ PAGE1_REDACT_COORDS = [
 ]
 
 PAGE2_REDACT_COORDS = [
-    (0.02, 0.10, 0.12, 0.17),  # Top left (Name/RG)
+    (0.02, 0.10, 0.12, 0.17),   # Top left (Name/RG)
     (0.13, 0.10, 0.18, 0.135),  # Top left (CPF)
-    (0.40, 0.94, 0.98, 0.97),  # Footer (signature/CRM bar)
-    (0.88, 0.85, 0.96, 0.92),  # Footer (right block)
+    (0.40, 0.94, 0.98, 0.97),   # Footer (signature/CRM bar)
+    (0.88, 0.85, 0.96, 0.92),   # Footer (right block)
 ]
