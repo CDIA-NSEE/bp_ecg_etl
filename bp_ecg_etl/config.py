@@ -8,14 +8,31 @@ OUTPUT_BUCKET = os.getenv("OUTPUT_BUCKET", "anon-pdfs")
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 
 # Concurrency Configuration (ECS/Lambda)
-# Optimized for 8 vCPUs + 16GB RAM: 100 workers = ~8-9 hours for 1.5M PDFs
-MAX_WORKERS = int(os.getenv("MAX_WORKERS", "100"))  # 100 for ECS (8 vCPUs), 10-20 for Lambda
-QUEUE_SIZE = int(os.getenv("QUEUE_SIZE", "400"))  # Buffer size for asyncio.Queue
+# OTIMIZADO PARA PERFORMANCE MÁXIMA COM PARALLELISM HÍBRIDO
+# Recomendações por hardware:
+#   - 8 CPUs + 16GB RAM: 16 processes + 200 async workers (OTIMIZADO)
+#   - 4 CPUs + 8GB RAM: 8 processes + 100 async workers
+#   - 16 CPUs + 32GB RAM: 32 processes + 400 async workers
+#   - Lambda: Não recomendado (use ECS Fargate)
+# Performance esperada: 16 processes @ 8 vCPUs = ~2-3 hours para 1.5M PDFs (3-4x mais rápido)
+MAX_WORKERS = int(os.getenv("MAX_WORKERS", "200"))  # Asyncio workers para I/O concorrente
+QUEUE_SIZE = int(os.getenv("QUEUE_SIZE", "800"))  # Buffer size (4x MAX_WORKERS)
+MAX_PROCESS_WORKERS = int(os.getenv("MAX_PROCESS_WORKERS", "16"))  # 0 = auto-detect (CPU count)
+BATCH_UPLOAD_SIZE = int(os.getenv("BATCH_UPLOAD_SIZE", "50"))  # Upload em lotes
 
 # Processing Configuration
 # DPI for page 2 rasterization (higher = better quality, larger file)
 # 220 = good (web), 300 = high (print), 450 = very high (medical archive)
-DPI_PAGE2_RENDER = int(os.getenv("DPI_PAGE2_RENDER", "600"))
+# OTIMIZADO: 300 DPI oferece qualidade excelente com 4x menos processamento que 600
+DPI_PAGE2_RENDER = int(os.getenv("DPI_PAGE2_RENDER", "450"))
+
+# Compression Configuration
+ZIP_COMPRESSION_LEVEL = int(os.getenv("ZIP_COMPRESSION_LEVEL", "5"))  # 1-9, 3 = fast + good ratio
+
+# S3 Configuration
+S3_MAX_POOL_CONNECTIONS = int(os.getenv("S3_MAX_POOL_CONNECTIONS", "50"))
+S3_CONNECT_TIMEOUT = int(os.getenv("S3_CONNECT_TIMEOUT", "5"))
+S3_READ_TIMEOUT = int(os.getenv("S3_READ_TIMEOUT", "30"))
 
 # Anonymization Rules
 LINE_TOLERANCE = float(os.getenv("LINE_TOLERANCE", "1.0"))

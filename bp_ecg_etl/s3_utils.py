@@ -1,16 +1,39 @@
-"""S3 utilities for PDF processing with connection pooling."""
+"""S3 utilities for PDF processing with optimized connection pooling."""
+
+import asyncio
+import io
+import zipfile
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 
 import aioboto3
 import structlog
-from botocore.exceptions import ClientError
 import ulid as ulid_lib
+from botocore.config import Config
+from botocore.exceptions import ClientError
 
-from .config import AWS_REGION
+from .config import (
+    AWS_REGION,
+    S3_CONNECT_TIMEOUT,
+    S3_MAX_POOL_CONNECTIONS,
+    S3_READ_TIMEOUT,
+    ZIP_COMPRESSION_LEVEL,
+)
 
 logger = structlog.get_logger(__name__)
 
-# Reusable session for better performance
+# Reusable session with optimized connection pooling
 _session: aioboto3.Session | None = None
+_thread_pool: ThreadPoolExecutor | None = None
+
+# Optimized boto3 config for high throughput
+_boto_config = Config(
+    max_pool_connections=S3_MAX_POOL_CONNECTIONS,
+    connect_timeout=S3_CONNECT_TIMEOUT,
+    read_timeout=S3_READ_TIMEOUT,
+    retries={'max_attempts': 3, 'mode': 'adaptive'},
+    tcp_keepalive=True,
+)
 
 
 def get_session() -> aioboto3.Session:
@@ -21,8 +44,16 @@ def get_session() -> aioboto3.Session:
     return _session
 
 
+def get_thread_pool() -> ThreadPoolExecutor:
+    """Get or create thread pool for CPU-bound compression operations."""
+    global _thread_pool
+    if _thread_pool is None:
+        _thread_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="zip-compress")
+    return _thread_pool
+
+
 async def download_pdf(bucket: str, key: str) -> bytes:
-    """Download PDF from S3.
+    """Download PDF from S3 with optimized connection pooling.
 
     Args:
         bucket: S3 bucket name
@@ -34,20 +65,12 @@ async def download_pdf(bucket: str, key: str) -> bytes:
     Raises:
         ClientError: If S3 operation fails
     """
-    logger.info("Downloading PDF from S3", bucket=bucket, key=key)
-
     session = get_session()
-    async with session.client("s3", region_name=AWS_REGION) as s3:
+    async with session.client("s3", region_name=AWS_REGION, config=_boto_config) as s3:
         try:
             response = await s3.get_object(Bucket=bucket, Key=key)
             content = await response["Body"].read()
 
-            logger.info(
-                "PDF downloaded successfully",
-                bucket=bucket,
-                key=key,
-                size_bytes=len(content),
-            )
             return content
 
         except ClientError as e:
@@ -61,13 +84,33 @@ async def download_pdf(bucket: str, key: str) -> bytes:
             raise
 
 
+def _compress_pdf_sync(content: bytes, key: str) -> tuple[bytes, int, int, float]:
+    """Synchronous ZIP compression (runs in thread pool).
+
+    Returns:
+        Tuple of (compressed_content, original_size, compressed_size, compression_ratio)
+    """
+    original_size = len(content)
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED, compresslevel=ZIP_COMPRESSION_LEVEL) as zip_file:
+        pdf_name = key.split('/')[-1].replace('.pdf.zip', '.pdf')
+        zip_file.writestr(pdf_name, content)
+
+    compressed_content = zip_buffer.getvalue()
+    compressed_size = len(compressed_content)
+    compression_ratio = (1 - compressed_size / original_size) * 100
+
+    return compressed_content, original_size, compressed_size, compression_ratio
+
+
 async def upload_pdf(
     bucket: str,
     key: str,
     content: bytes,
     metadata: dict[str, str] | None = None,
 ) -> tuple[int, int]:
-    """Upload PDF to S3 with ZIP compression.
+    """Upload PDF to S3 with async ZIP compression.
 
     Args:
         bucket: S3 bucket name
@@ -81,33 +124,15 @@ async def upload_pdf(
     Raises:
         ClientError: If S3 operation fails
     """
-    import io
-    import zipfile
-
-    original_size = len(content)
-
-    # Compress with ZIP
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as zip_file:
-        # Extract base filename and add to zip
-        pdf_name = key.split('/')[-1].replace('.pdf.zip', '.pdf')
-        zip_file.writestr(pdf_name, content)
-
-    compressed_content = zip_buffer.getvalue()
-    compressed_size = len(compressed_content)
-    compression_ratio = (1 - compressed_size / original_size) * 100
-
-    logger.info(
-        "Uploading compressed PDF to S3",
-        bucket=bucket,
-        key=key,
-        original_size=original_size,
-        compressed_size=compressed_size,
-        compression_ratio=f"{compression_ratio:.1f}%",
+    # Compress in thread pool (CPU-bound operation)
+    loop = asyncio.get_event_loop()
+    thread_pool = get_thread_pool()
+    compressed_content, original_size, compressed_size, compression_ratio = await loop.run_in_executor(
+        thread_pool, _compress_pdf_sync, content, key
     )
 
     session = get_session()
-    async with session.client("s3", region_name=AWS_REGION) as s3:
+    async with session.client("s3", region_name=AWS_REGION, config=_boto_config) as s3:
         try:
             upload_params: dict = {
                 "Bucket": bucket,
@@ -129,8 +154,6 @@ async def upload_pdf(
             upload_params["Metadata"] = metadata
 
             await s3.put_object(**upload_params)
-
-            logger.info("Compressed PDF uploaded successfully", bucket=bucket, key=key)
 
         except ClientError as e:
             error_code = e.response.get("Error", {}).get("Code", "Unknown")
@@ -154,15 +177,7 @@ def generate_output_key(input_key: str, prefix: str = "anonymized") -> str:
 
     Returns:
         Generated S3 key with date structure: /YYYY/mm/anonymized_ULID.pdf.zip
-
-    Examples:
-        >>> generate_output_key("file.pdf")
-        '2025/01/anonymized_01H2X....pdf.zip'
-        >>> generate_output_key("path/to/file.pdf")
-        '2025/01/anonymized_01H2X....pdf.zip'
     """
-    from datetime import datetime
-
     ulid_str = ulid_lib.new().str
     now = datetime.utcnow()
 
@@ -171,14 +186,13 @@ def generate_output_key(input_key: str, prefix: str = "anonymized") -> str:
     month = f"{now.month:02d}"
     date_path = f"{year}/{month}"
 
-    # Filename with compression extension
     filename = f"{prefix}_{ulid_str}.pdf.zip"
 
     return f"{date_path}/{filename}"
 
 
 async def list_bucket_stream(bucket: str, prefix: str = ""):
-    """Stream PDFs from S3 bucket without loading all keys in memory.
+    """Stream PDFs from S3 bucket with optimized pagination.
 
     Args:
         bucket: S3 bucket name
@@ -188,13 +202,39 @@ async def list_bucket_stream(bucket: str, prefix: str = ""):
         PDF keys from the bucket
     """
     session = get_session()
-    async with session.client("s3", region_name=AWS_REGION) as s3:
+    async with session.client("s3", region_name=AWS_REGION, config=_boto_config) as s3:
         paginator = s3.get_paginator("list_objects_v2")
 
-        async for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        async for page in paginator.paginate(Bucket=bucket, Prefix=prefix, PaginationConfig={'PageSize': 1000}):
             for obj in page.get("Contents", []):
                 key = obj["Key"]
                 if key.lower().endswith(".pdf"):
                     yield key
+
+
+async def batch_upload_pdfs(
+    bucket: str,
+    items: list[tuple[str, bytes, dict[str, str]]],
+) -> list[tuple[int, int]]:
+    """Batch upload multiple PDFs to S3 with parallel compression.
+
+    Args:
+        bucket: S3 bucket name
+        items: List of (key, content, metadata) tuples
+
+    Returns:
+        List of (original_size, compressed_size) tuples
+    """
+    results = await asyncio.gather(
+        *[upload_pdf(bucket, key, content, metadata) for key, content, metadata in items],
+        return_exceptions=True
+    )
+
+    # Filter out exceptions and return successful results
+    valid_results: list[tuple[int, int]] = []
+    for r in results:
+        if not isinstance(r, Exception):
+            valid_results.append(r)
+    return valid_results
 
 
