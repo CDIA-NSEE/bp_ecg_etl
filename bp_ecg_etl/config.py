@@ -32,7 +32,7 @@ DPI_PAGE2_RENDER = int(os.getenv("DPI_PAGE2_RENDER", "450"))
 JPEG_QUALITY = int(os.getenv("JPEG_QUALITY", "95"))
 
 # Compression Configuration
-ZIP_COMPRESSION_LEVEL = int(os.getenv("ZIP_COMPRESSION_LEVEL", "5"))  # 1-9, 3 = fast + good ratio
+ZIP_COMPRESSION_LEVEL = int(os.getenv("ZIP_COMPRESSION_LEVEL", "3"))  # 1-9, 3 = fast + good ratio
 
 # S3 Configuration
 S3_MAX_POOL_CONNECTIONS = int(os.getenv("S3_MAX_POOL_CONNECTIONS", "50"))
