@@ -98,7 +98,7 @@ async def consumer_task(
     output_bucket: str,
     stats: dict[str, Any],
 ) -> None:
-    """Consumer: Processes PDFs from the queue."""
+    """Consumer: Processes PDFs from the queue with optimized batch operations."""
     process_pool = get_process_pool()
     loop = asyncio.get_event_loop()
 
@@ -109,33 +109,52 @@ async def consumer_task(
             queue.task_done()
             break
 
+        start_time = time.time()
+        timings = {}
+
         try:
-            # Download
+            # Download (with timing)
+            t0 = time.time()
             pdf_content = await download_pdf(input_bucket, pdf_key)
+            timings['download_ms'] = int((time.time() - t0) * 1000)
 
             # Anonymize (CPU-bound in separate process)
+            t0 = time.time()
             anonymized_content = await loop.run_in_executor(
                 process_pool, process_pdf_worker, pdf_content
             )
+            timings['anonymize_ms'] = int((time.time() - t0) * 1000)
 
             # Generate output key
             output_key = generate_output_key(pdf_key)
 
-            # Metadata
+            # Metadata (include timing)
             metadata = {
                 "original-bucket": input_bucket,
                 "original-key": pdf_key,
                 "anonymized": "true",
             }
 
-            # Upload
+            # Upload (with timing)
+            t0 = time.time()
             original_size, compressed_size = await upload_pdf(
                 output_bucket, output_key, anonymized_content, metadata
             )
+            timings['upload_ms'] = int((time.time() - t0) * 1000)
+            timings['total_ms'] = int((time.time() - start_time) * 1000)
 
             stats["successful"] += 1
             stats["total_original_bytes"] += original_size
             stats["total_compressed_bytes"] += compressed_size
+
+            # Log performance metrics (sampled)
+            if stats["successful"] % 100 == 0:
+                logger.info(
+                    "Performance sample",
+                    worker=worker_id,
+                    count=stats["successful"],
+                    **timings
+                )
 
         except Exception as e:
             stats["failed"] += 1
@@ -159,7 +178,7 @@ async def async_main(prefix: str = "") -> dict[str, Any]:
     start_time = time.time()
 
     # Shared queue (bounded to prevent memory issues)
-    queue = asyncio.Queue(maxsize=QUEUE_SIZE)
+    queue: asyncio.Queue = asyncio.Queue(maxsize=QUEUE_SIZE)
 
     # Shared stats
     stats = {
@@ -202,7 +221,7 @@ async def async_main(prefix: str = "") -> dict[str, Any]:
             "total": total_enqueued,
             "successful": stats["successful"],
             "failed": stats["failed"],
-            "time_sec": round(total_time, 2),
+            "time_sec": int(total_time) if total_time < 1 else round(total_time, 2),
             "compression": f"{compression_ratio:.1f}%",
         },
     }

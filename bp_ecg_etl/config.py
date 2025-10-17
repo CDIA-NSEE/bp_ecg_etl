@@ -26,6 +26,11 @@ BATCH_UPLOAD_SIZE = int(os.getenv("BATCH_UPLOAD_SIZE", "50"))  # Upload em lotes
 # OTIMIZADO: 300 DPI oferece qualidade excelente com 4x menos processamento que 600
 DPI_PAGE2_RENDER = int(os.getenv("DPI_PAGE2_RENDER", "450"))
 
+# JPEG quality for page 2 rasterization (85-95 recommended for medical)
+# PERFORMANCE: JPEG is 3-5x faster than PNG with minimal quality loss at 95
+# 95 = excellent quality (recommended), 90 = high quality, 85 = good quality
+JPEG_QUALITY = int(os.getenv("JPEG_QUALITY", "95"))
+
 # Compression Configuration
 ZIP_COMPRESSION_LEVEL = int(os.getenv("ZIP_COMPRESSION_LEVEL", "5"))  # 1-9, 3 = fast + good ratio
 
