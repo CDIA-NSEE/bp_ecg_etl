@@ -15,19 +15,19 @@ services:
       retries: 10
       start_period: 5s
 
-  bp-ecg-etl:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    env_file:
-      - .env.local
-    environment:
-      - AWS_ENDPOINT_URL=http://localstack:4566
-      - INPUT_BUCKET=raw-pdfs
-      - OUTPUT_BUCKET=anon-pdfs
-      - MAX_WORKERS=10
-      - QUEUE_SIZE=50
-    depends_on:
-      localstack:
-        condition: service_healthy
-    command: python -m bp_ecg_etl.main
+  # bp-ecg-etl:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   env_file:
+  #     - .env.local
+  #   environment:
+  #     - AWS_ENDPOINT_URL=http://localstack:4566
+  #     - INPUT_BUCKET=raw-pdfs
+  #     - OUTPUT_BUCKET=anon-pdfs
+  #     - MAX_WORKERS=10
+  #     - QUEUE_SIZE=50
+  #   depends_on:
+  #     localstack:
+  #       condition: service_healthy
+  #   command: python -m bp_ecg_etl.main

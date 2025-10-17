@@ -59,4 +59,4 @@ ENV PYTHONUNBUFFERED=1 \
 USER app
 
 # Entry point
-CMD ["python", "-m", "bp_ecg_etl.main"]
+CMD ["python", "-m", "bp_ecg_etl"]

@@ -48,15 +48,20 @@ def get_process_pool() -> ProcessPoolExecutor:
     """Get or create process pool for CPU-bound PDF processing.
 
     Auto-detects CPU count if MAX_PROCESS_WORKERS is 0.
+    Uses spawn method for better Docker/Alpine compatibility.
     """
     global _process_pool
     if _process_pool is None:
+        # Force spawn method for Docker compatibility
+        import multiprocessing
+        multiprocessing.set_start_method('spawn', force=True)
+
         workers = MAX_PROCESS_WORKERS if MAX_PROCESS_WORKERS > 0 else (os.cpu_count() or 4) * 2
         _process_pool = ProcessPoolExecutor(
             max_workers=workers,
-            max_tasks_per_child=100,  # Restart workers after 100 tasks to prevent memory leaks
+            max_tasks_per_child=100,
         )
-        logger.info("Process pool initialized", workers=workers)
+        logger.info("Process pool initialized", workers=workers, method="spawn")
     return _process_pool
 
 
