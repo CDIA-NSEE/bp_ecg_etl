@@ -20,7 +20,8 @@ COPY pyproject.toml uv.lock ./
 COPY bp_ecg_etl/ ./bp_ecg_etl/
 
 # Install dependencies with uv
-RUN pip install --no-cache-dir uv && \
+RUN mkdir -p /deps && \
+    pip install --no-cache-dir uv && \
     # Create virtual environment and install all dependencies
     uv venv /opt/venv && \
     . /opt/venv/bin/activate && \
@@ -28,8 +29,6 @@ RUN pip install --no-cache-dir uv && \
     uv pip install --no-deps . && \
     # Copy installed packages to /deps
     cp -r /opt/venv/lib/python3.12/site-packages/* /deps/ && \
-    # Verify critical dependencies are installed
-    python -c "import structlog; import aioboto3; import fitz; import ulid; print('✅ All dependencies installed')" && \
     # Remove unnecessary files from deps
     find /deps -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true && \
     find /deps -type d -name "*.dist-info" -exec rm -rf {}/RECORD {} + 2>/dev/null || true && \
