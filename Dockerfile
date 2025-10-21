@@ -1,70 +1,48 @@
-# Build stage
-FROM python:3.12-alpine AS builder
+# Build stage - Install dependencies using UV
+FROM ghcr.io/astral-sh/uv:0.5.11-python3.12-bookworm-slim AS builder
 
-WORKDIR /build
+# Enable bytecode compilation for faster startup
+ENV UV_COMPILE_BYTECODE=1
 
-# Install build dependencies for PyMuPDF and other packages
-RUN apk add --no-cache \
-    gcc \
-    musl-dev \
-    mupdf-dev \
-    freetype-dev \
-    harfbuzz-dev \
-    openjpeg-dev \
-    jbig2dec-dev \
-    jpeg-dev \
-    zlib-dev
-
-# Install uv and dependencies
-COPY pyproject.toml uv.lock ./
-COPY bp_ecg_etl/ ./bp_ecg_etl/
-
-# Install dependencies with uv
-RUN mkdir -p /deps && \
-    pip install --no-cache-dir uv && \
-    # Create virtual environment and install all dependencies
-    uv venv /opt/venv && \
-    . /opt/venv/bin/activate && \
-    uv pip sync uv.lock && \
-    uv pip install --no-deps . && \
-    # Copy installed packages to /deps
-    cp -r /opt/venv/lib/python3.12/site-packages/* /deps/ && \
-    # Remove unnecessary files from deps
-    find /deps -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true && \
-    find /deps -type d -name "*.dist-info" -exec rm -rf {}/RECORD {} + 2>/dev/null || true && \
-    find /deps -type d -name "tests" -exec rm -rf {} + 2>/dev/null || true && \
-    find /deps -name "*.pyc" -delete && \
-    find /deps -name "*.pyo" -delete
-
-# Runtime stage - minimal
-FROM python:3.12-alpine
+# Use copy mode for better Docker layer caching
+ENV UV_LINK_MODE=copy
 
 WORKDIR /app
 
-# Install only runtime dependencies (no build tools)
-RUN apk add --no-cache \
-    libstdc++ \
-    mupdf-dev \
-    freetype \
-    harfbuzz \
-    openjpeg \
-    jbig2dec \
-    jpeg \
-    zlib && \
-    # Create non-root user
-    adduser -D -u 1000 app && \
+# Install dependencies first (separate layer for better caching)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --frozen --no-install-project --no-dev
+
+# Copy the rest of the application
+COPY . /app
+
+# Install the project itself
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev
+
+# Runtime stage - minimal production image
+FROM python:3.12-slim-bookworm
+
+WORKDIR /app
+
+# Copy the virtual environment from builder
+COPY --from=builder /app/.venv /app/.venv
+
+# Copy application code
+COPY --from=builder /app/bp_ecg_etl /app/bp_ecg_etl
+
+# Create non-root user
+RUN useradd -m -u 1000 app && \
     chown -R app:app /app
 
-# Copy only dependencies and app code
-COPY --from=builder /deps /usr/local/lib/python3.12/site-packages/
-COPY --chown=app:app bp_ecg_etl/ ./bp_ecg_etl/
-
-# Environment
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app \
+# Environment variables
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-# Security: non-root user
+# Security: run as non-root
 USER app
 
 # Entry point

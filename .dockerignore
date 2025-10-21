@@ -9,7 +9,8 @@ dist/
 build/
 *.egg
 
-# Virtual environments
+# Virtual environments (IMPORTANT: exclude local .venv for UV)
+.venv/
 venv/
 env/
 ENV/
